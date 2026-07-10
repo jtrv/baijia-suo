@@ -1,0 +1,31 @@
+[tasks.build]
+description = "Debug build"
+run = "cargo build"
+
+[tasks.release]
+description = "Release build"
+run = "cargo build --release"
+
+[tasks.check]
+description = "Type-check without building"
+run = "cargo check"
+
+[tasks.test]
+description = "Run the test suite (all_modes_smoke is slow unoptimized)"
+run = "cargo test --release"
+
+[tasks.lint]
+description = "Clippy, no writes"
+run = "cargo clippy -- -D warnings"
+
+[tasks.format]
+description = "Format the codebase"
+run = "cargo fmt"
+
+[tasks.clean]
+description = "Remove build output"
+run = "cargo clean"
+
+[tasks.man]
+description = "Build the man page"
+run = "scdoc < baijia-suo.1.scd > baijia-suo.1"

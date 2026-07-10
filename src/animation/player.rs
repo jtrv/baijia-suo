@@ -1,0 +1,217 @@
+//! AnimationPlayer: the animation frame clock.
+//!
+//! Owns everything about driving an `Animation` forward in time — when the
+//! next frame is due, how many ticks to catch up after a delayed wakeup,
+//! the persistent pixel buffer, the render call, and the stride-safe copy
+//! into a Wayland surface. Also owns the single per-mode `delay_us`
+//! defaults table. Callers (the Wayland event loop, `App::render_to_surface`)
+//! make no timing decisions of their own.
+
+use super::{primitives, AnimConfig, AnimRegistry, Animation};
+use std::time::{Duration, Instant};
+
+pub struct AnimationPlayer {
+    animation: Box<dyn Animation>,
+    /// Delay-resolved params used to (re)initialize `animation` on resize.
+    base_params: AnimConfig,
+    background: primitives::Color,
+    surface_size: Option<(u32, u32)>,
+    buffer: Option<Vec<u8>>,
+    last_tick: Option<Instant>,
+    next_wake: Option<Instant>,
+}
+
+impl AnimationPlayer {
+    /// Creates a player for `mode_name`, or `None` if the mode isn't
+    /// registered. `params.delay_us == 0` is resolved to the mode's
+    /// default here — the single place that mapping lives, replacing the
+    /// two duplicated (and drifted) match tables that used to live in
+    /// `app.rs`.
+    pub fn new(
+        mode_name: &str,
+        mut params: AnimConfig,
+        background_rgba: (f64, f64, f64, f64),
+    ) -> Option<Self> {
+        if params.delay_us == 0 {
+            params.delay_us = Self::default_delay_us(mode_name);
+        }
+        let registry = AnimRegistry::new();
+        let animation = registry.create(mode_name, &params)?;
+        Some(AnimationPlayer {
+            animation,
+            base_params: params,
+            background: rgba_to_color(background_rgba),
+            surface_size: None,
+            buffer: None,
+            last_tick: None,
+            next_wake: None,
+        })
+    }
+
+    fn default_delay_us(mode: &str) -> u64 {
+        match mode {
+            "flame" => 750_000,
+            "forest" => 400_000,
+            "vines" => 200_000,
+            "grav" | "hop" | "lissie" | "mountain" => 10_000,
+            "discrete" => 1_000,
+            "helix" => 25_000,
+            "spiral" => 20_000,
+            "qix" => 30_000,
+            "worm" => 17_000,
+            "blot" => 2_000_000,
+            "pyro" => 15_000,
+            "rain" => 35_000,
+            "bubble" => 100_000,
+            "lightning" => 10_000,
+            _ => 16_666,
+        }
+    }
+
+    pub fn clears_each_frame(&self) -> bool {
+        self.animation.clears_each_frame()
+    }
+
+    /// Deadline the event loop should wake at to keep the animation
+    /// running. `None` once the animation reports it isn't ticking
+    /// (`frame_delay_us() == 0`).
+    pub fn next_wake(&self) -> Option<Instant> {
+        self.next_wake
+    }
+
+    /// Advance the clock to `now`: catch up on ticks (capped to 10, to
+    /// avoid a spiral of death if the event loop was heavily delayed),
+    /// render into the internal buffer, and recompute `next_wake`.
+    ///
+    /// Safe to call before `ensure_sized` (e.g. the very first draw, before
+    /// any output has reported its size): the clock still advances and
+    /// `next_wake` still gets armed, but there's no buffer yet to render
+    /// into, so the render step is skipped until a size is known.
+    pub fn advance(&mut self, now: Instant) {
+        let delay_us = self.animation.frame_delay_us();
+        if delay_us == 0 {
+            self.next_wake = None;
+            return;
+        }
+
+        let tick_count = match self.last_tick {
+            Some(last) => {
+                let elapsed = now.duration_since(last).as_micros() as u64;
+                if elapsed >= delay_us {
+                    let n = ((elapsed / delay_us) as u32).min(10);
+                    self.last_tick = Some(last + Duration::from_micros(n as u64 * delay_us));
+                    n
+                } else {
+                    0
+                }
+            }
+            None => {
+                self.last_tick = Some(now);
+                1
+            }
+        };
+
+        self.next_wake = Some(self.last_tick.unwrap() + Duration::from_micros(delay_us));
+
+        let (Some((w, h)), Some(buf)) = (self.surface_size, self.buffer.as_mut()) else {
+            return;
+        };
+
+        if self.animation.clears_each_frame() {
+            for _ in 0..tick_count {
+                self.animation.tick();
+            }
+            // Re-clear and render even at tick_count == 0, so a redraw
+            // triggered by something other than the animation clock (e.g.
+            // a keystroke) still shows the current frame.
+            primitives::clear_buffer(buf, self.background);
+            self.animation.render(buf, w, h);
+        } else {
+            for _ in 0..tick_count {
+                self.animation.tick();
+                self.animation.render(buf, w, h);
+            }
+        }
+    }
+
+    /// (Re)initializes the animation and buffer for a new surface size.
+    /// A no-op if `width`x`height` matches the current size.
+    pub fn ensure_sized(&mut self, width: u32, height: u32) {
+        if self.surface_size == Some((width, height)) {
+            return;
+        }
+
+        let mut params = self.base_params.clone();
+        params.width = width;
+        params.height = height;
+        self.animation.reset(&params);
+        self.surface_size = Some((width, height));
+
+        let buf_size = (width * height * 4) as usize;
+        let mut buf = vec![0u8; buf_size];
+        primitives::clear_buffer(&mut buf, self.background);
+        self.buffer = Some(buf);
+    }
+
+    /// Copies the internal BGRA buffer into the raw `wl_shm` slice `dst`
+    /// (also BGRA, stride `width * 4` — no padding). A no-op if `ensure_sized`
+    /// hasn't run yet.
+    pub fn blit_into(&self, dst: &mut [u8], width: i32, height: i32) -> Result<(), String> {
+        let Some(buf) = &self.buffer else {
+            return Ok(());
+        };
+        let n = (width * height * 4) as usize;
+        if dst.len() >= n && buf.len() >= n {
+            dst[..n].copy_from_slice(&buf[..n]);
+        }
+        Ok(())
+    }
+}
+
+fn rgba_to_color(rgba: (f64, f64, f64, f64)) -> primitives::Color {
+    primitives::Color::new(
+        (rgba.3 * 255.0) as u8,
+        (rgba.0 * 255.0) as u8,
+        (rgba.1 * 255.0) as u8,
+        (rgba.2 * 255.0) as u8,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_delay_matches_known_modes() {
+        assert_eq!(AnimationPlayer::default_delay_us("flame"), 750_000);
+        assert_eq!(AnimationPlayer::default_delay_us("worm"), 17_000);
+        assert_eq!(
+            AnimationPlayer::default_delay_us("totally-unknown-mode"),
+            16_666
+        );
+    }
+
+    #[test]
+    fn advance_arms_next_wake_before_first_size_is_known() {
+        let mut player =
+            AnimationPlayer::new("spiral", AnimConfig::default(), (0.0, 0.0, 0.0, 1.0))
+                .expect("spiral is registered");
+        assert!(player.next_wake().is_none());
+        player.advance(Instant::now());
+        assert!(
+            player.next_wake().is_some(),
+            "clock should arm even without a known surface size"
+        );
+    }
+
+    #[test]
+    fn ensure_sized_is_idempotent_for_same_dimensions() {
+        let mut player =
+            AnimationPlayer::new("spiral", AnimConfig::default(), (0.0, 0.0, 0.0, 1.0))
+                .expect("spiral is registered");
+        player.ensure_sized(100, 100);
+        let first_len = player.buffer.as_ref().unwrap().len();
+        player.ensure_sized(100, 100);
+        assert_eq!(player.buffer.as_ref().unwrap().len(), first_len);
+    }
+}

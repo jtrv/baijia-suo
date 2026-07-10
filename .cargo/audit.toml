@@ -1,0 +1,7 @@
+# quick-xml is a build-time-only dep of wayland-scanner (proc-macro codegen
+# from the Wayland XML protocol spec, not linked into the compiled binary).
+# No upstream fix yet: wayland-scanner 0.31.10 pins quick-xml = "^0.39",
+# blocking the >=0.41.0 patched version. Re-run `cargo audit` after bumping
+# wayland-client/wayland-scanner to drop these once upstream unpins it.
+[advisories]
+ignore = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]

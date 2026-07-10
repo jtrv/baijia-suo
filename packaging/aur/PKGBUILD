@@ -1,0 +1,45 @@
+# Maintainer: jtrv
+pkgname=baijia-suo
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A secure Wayland screen locker with xlockmore animation support"
+arch=('x86_64')
+url="https://github.com/jtrv/baijia-suo"
+license=('MIT')
+depends=('pam' 'libxkbcommon' 'wayland' 'gcc-libs' 'glibc')
+makedepends=('cargo' 'scdoc')
+backup=('etc/pam.d/baijia-suo')
+options=('!strip') # the release profile already strips the binary
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+	cd "$pkgname-$pkgver"
+	export RUSTUP_TOOLCHAIN=stable
+	cargo build --release --locked
+	# build.rs emits completions/baijia-suo.fish during the build above.
+	scdoc <baijia-suo.1.scd >baijia-suo.1
+}
+
+package() {
+	cd "$pkgname-$pkgver"
+	install -Dm755 target/release/baijia-suo "$pkgdir/usr/bin/baijia-suo"
+	install -Dm644 baijia-suo.1 "$pkgdir/usr/share/man/man1/baijia-suo.1"
+	install -Dm644 completions/baijia-suo.bash \
+		"$pkgdir/usr/share/bash-completion/completions/baijia-suo"
+	install -Dm644 completions/_baijia-suo \
+		"$pkgdir/usr/share/zsh/site-functions/_baijia-suo"
+	install -Dm644 completions/baijia-suo.fish \
+		"$pkgdir/usr/share/fish/vendor_completions.d/baijia-suo.fish"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+	# PAM service. baijia-suo falls back to /etc/pam.d/login when this is
+	# absent; shipping it makes the auth + account phases explicit. Marked as
+	# a backup file so local edits survive upgrades.
+	install -Dm644 /dev/stdin "$pkgdir/etc/pam.d/$pkgname" <<'PAM'
+#%PAM-1.0
+# Only the auth and account phases are used by baijia-suo.
+auth       include   system-auth
+account    include   system-auth
+PAM
+}
