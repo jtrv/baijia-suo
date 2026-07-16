@@ -56,9 +56,10 @@ fn fill_polygon(buffer: &mut [u8], width: u32, height: u32, verts: &[(i32, i32)]
         v if v < 0 => return,
         v => v as u32,
     };
+    let mut xs: Vec<i32> = Vec::with_capacity(8);
     for scan_y in min_y..=max_y {
         let sy = scan_y as i32;
-        let mut xs: Vec<i32> = Vec::new();
+        xs.clear();
         for i in 0..n {
             let (x0, y0) = verts[i];
             let (x1, y1) = verts[(i + 1) % n];
@@ -223,7 +224,15 @@ impl Animation for Qix {
         let color = self.palette_color(self.pix);
         self.pix = (self.pix + 1) % self.ncolors;
 
-        let snapshot: Vec<(i32, i32)> = self.points.iter().map(|p| (p.x, p.y)).collect();
+        // Recycle the Vec from the oldest snapshot instead of allocating a
+        // new one each tick, when the (bounded, non-Kaleid) history is full.
+        let mut snapshot = if self.mode != QixMode::Kaleid && self.history.len() >= self.max_snapshots {
+            self.history.pop_front().map(|(v, _)| v).unwrap_or_default()
+        } else {
+            Vec::with_capacity(self.npoints)
+        };
+        snapshot.clear();
+        snapshot.extend(self.points.iter().map(|p| (p.x, p.y)));
         self.history.push_back((snapshot, color));
 
         if self.mode == QixMode::Kaleid {
@@ -255,13 +264,13 @@ impl Animation for Qix {
                 }
             }
             QixMode::Solid => {
-                let entries: Vec<_> = self.history.iter().collect();
-                for i in 0..entries.len().saturating_sub(1) {
-                    let (old_pts, _) = entries[i];
-                    let (new_pts, color) = entries[i + 1];
+                let mut verts: Vec<(i32, i32)> = Vec::new();
+                for ((old_pts, _), (new_pts, color)) in
+                    self.history.iter().zip(self.history.iter().skip(1))
+                {
                     let n = old_pts.len();
                     if n == new_pts.len() && n >= 1 {
-                        let mut verts = Vec::with_capacity(2 * n);
+                        verts.clear();
                         verts.extend_from_slice(old_pts);
                         for j in (0..n).rev() {
                             verts.push(new_pts[j]);

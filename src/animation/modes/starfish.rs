@@ -153,9 +153,10 @@ fn fill_polygon(buffer: &mut [u8], width: u32, height: u32, points: &[(f64, f64)
     let start_y = (min_y.floor() as i32).max(0);
     let end_y = (max_y.ceil() as i32).min(height as i32 - 1);
 
+    let mut nodes: Vec<f64> = Vec::with_capacity(8);
     for y in start_y..=end_y {
         let y_f = y as f64 + 0.5;
-        let mut nodes = Vec::new();
+        nodes.clear();
         let mut j = points.len() - 1;
         for i in 0..points.len() {
             let (xi, yi) = points[i];

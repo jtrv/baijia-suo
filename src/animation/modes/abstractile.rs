@@ -15,6 +15,7 @@
 use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
 use rand::Rng;
+use std::cell::Cell;
 use std::f64::consts::PI;
 
 const DIR_NONE: i32 = 0;
@@ -281,8 +282,9 @@ fn fill_poly(buf: &mut [u8], bw: u32, bh: u32, verts: &[(i32, i32)], c: Color) {
     };
     let min_y = min_y.max(0);
     let max_y = max_y.min(bh as i32 - 1);
+    let mut xs: Vec<i32> = Vec::with_capacity(8);
     for sy in min_y..=max_y {
-        let mut xs: Vec<i32> = Vec::new();
+        xs.clear();
         for i in 0..n {
             let (x0, y0) = verts[i];
             let (x1, y1) = verts[(i + 1) % n];
@@ -384,6 +386,10 @@ pub struct Abstractile {
     cphase: u32,
     cprog: usize,
     next_delay_us: u64,
+    /* set whenever self.pixels is mutated; render() clears it after
+    copying, so Mode::Create ticks (which never touch self.pixels) can
+    skip the copy. Cell because render() takes &self. */
+    dirty: Cell<bool>,
 }
 
 impl Abstractile {
@@ -1869,6 +1875,7 @@ impl Abstractile {
     }
 
     fn draw_lines(&mut self) {
+        self.dirty.set(true);
         if self.bi == 1 {
             for a in 0..=self.oi.min(self.fdol.len() - 1) {
                 self.fdol[a] = 0;
@@ -1958,6 +1965,7 @@ impl Abstractile {
         if self.ii == 0 {
             return;
         }
+        self.dirty.set(true);
         let end = (self.eli + 1).min(self.bi + self.elpu.max(1));
         for di in self.bi..end {
             let l = self.eline[di];
@@ -2134,6 +2142,7 @@ impl Animation for Abstractile {
             cphase: 0,
             cprog: 0,
             next_delay_us: 20_000,
+            dirty: Cell::new(true),
         }
     }
 
@@ -2164,7 +2173,10 @@ impl Animation for Abstractile {
 
     fn render(&self, buffer: &mut [u8], _width: u32, _height: u32) {
         if buffer.len() == self.pixels.len() {
-            buffer.copy_from_slice(&self.pixels);
+            if self.dirty.get() {
+                buffer.copy_from_slice(&self.pixels);
+                self.dirty.set(false);
+            }
         } else {
             clear_buffer(buffer, BG);
         }

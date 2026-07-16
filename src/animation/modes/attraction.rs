@@ -75,9 +75,10 @@ fn fill_polygon(buffer: &mut [u8], width: u32, height: u32, verts: &[(i32, i32)]
         v if v < 0 => return,
         v => v as u32,
     };
+    let mut xs: Vec<i32> = Vec::with_capacity(8);
     for scan_y in min_y..=max_y {
         let sy = scan_y as i32;
-        let mut xs: Vec<i32> = Vec::new();
+        xs.clear();
         for i in 0..n {
             let (x0, y0) = verts[i];
             let (x1, y1) = verts[(i + 1) % n];
