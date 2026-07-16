@@ -7,7 +7,7 @@
 //! feel, à la xscreensaver's `cycle`).
 //!
 //! It exposes the same surface the event loop already drives on a player
-//! (`advance`/`ensure_sized`/`blit_into`/`next_wake`/`clears_each_frame`), so
+//! (`advance`/`ensure_sized`/`blit_into`/`next_wake`), so
 //! the switching stays contained here and `AnimationPlayer` keeps its single
 //! job of driving one animation's frame clock.
 
@@ -123,10 +123,6 @@ impl Playlist {
 
     pub fn blit_into(&self, dst: &mut [u8], width: i32, height: i32) -> Result<(), String> {
         self.current.blit_into(dst, width, height)
-    }
-
-    pub fn clears_each_frame(&self) -> bool {
-        self.current.clears_each_frame()
     }
 
     /// The earlier of the current mode's next frame and the next mode switch,

@@ -242,10 +242,14 @@ impl WaylandState {
         min_ms
     }
 
-    /// Fire any timers whose deadline has passed.
+    /// Fire any timers whose deadline has passed. Each branch only marks
+    /// that a redraw is needed; a single draw() at the end coalesces
+    /// coinciding deadlines (e.g. the animation clock firing during a
+    /// typing burst) into one frame instead of back-to-back full redraws.
     fn tick_timers(&mut self) {
         self.app.update_auth();
         let now = Instant::now();
+        let mut needs_draw = false;
 
         // Key repeat
         if let Some(key) = self.repeat_key {
@@ -254,7 +258,7 @@ impl WaylandState {
                     if let Some(codepoint) = self.app.keyboard.process_key(key, true) {
                         self.app.handle_key(codepoint);
                         self.password_clear_at = Some(Instant::now() + Duration::from_secs(10));
-                        self.draw();
+                        needs_draw = true;
                     }
                     if self.repeat_interval_ms > 0 {
                         // Advance by interval (catches up if we're running slow)
@@ -272,7 +276,7 @@ impl WaylandState {
             if now >= t {
                 self.auth_clear_at = None;
                 self.app.clear_auth_failed();
-                self.draw();
+                needs_draw = true;
             }
         }
 
@@ -281,7 +285,7 @@ impl WaylandState {
             if now >= t {
                 self.password_clear_at = None;
                 self.app.handle_key(0x1B); // Escape clears the password buffer
-                self.draw();
+                needs_draw = true;
             }
         }
 
@@ -290,7 +294,7 @@ impl WaylandState {
         // deciding whether the deadline has passed.
         if let Some(t) = self.anim_wake_at {
             if now >= t {
-                self.draw();
+                needs_draw = true;
             }
         }
 
@@ -311,17 +315,21 @@ impl WaylandState {
         // nothing else is animating.
         let msg_live = self.app.pam_message(now).is_some();
         if self.pam_msg_was_live && !msg_live {
-            self.draw();
+            needs_draw = true;
         }
         self.pam_msg_was_live = msg_live;
 
         let visible = self.app.indicator_visible(now);
         if self.indicator_was_visible && !visible {
-            self.draw();
+            needs_draw = true;
         }
         self.indicator_was_visible = visible;
 
         if self.app.indicator_active(now) {
+            needs_draw = true;
+        }
+
+        if needs_draw {
             self.draw();
         }
     }

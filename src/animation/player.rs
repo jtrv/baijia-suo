@@ -23,6 +23,10 @@ pub struct AnimationPlayer {
     /// each mode's own clock (some ask for 100-1000 fps — binaryring,
     /// starfish, discrete — which on a 60 Hz panel is pure battery drain).
     min_delay_us: u64,
+    /// The buffer was (re)created and doesn't hold a rendered frame yet.
+    /// Forces one render even when no tick is due, so a redraw right after
+    /// resize isn't blank. Cleared after that render.
+    dirty: bool,
 }
 
 impl AnimationPlayer {
@@ -55,6 +59,7 @@ impl AnimationPlayer {
             buffer: None,
             last_tick: None,
             next_wake: None,
+            dirty: false,
         })
     }
 
@@ -76,10 +81,6 @@ impl AnimationPlayer {
             "lightning" => 10_000,
             _ => 16_666,
         }
-    }
-
-    pub fn clears_each_frame(&self) -> bool {
-        self.animation.clears_each_frame()
     }
 
     /// Deadline the event loop should wake at to keep the animation
@@ -132,11 +133,15 @@ impl AnimationPlayer {
             for _ in 0..tick_count {
                 self.animation.tick();
             }
-            // Re-clear and render even at tick_count == 0, so a redraw
-            // triggered by something other than the animation clock (e.g.
-            // a keystroke) still shows the current frame.
-            primitives::clear_buffer(buf, self.background);
-            self.animation.render(buf, w, h);
+            // Skip the clear + render when nothing ticked and the buffer
+            // already holds the current frame: keystroke/indicator redraws
+            // call advance() far more often than most mode clocks fire, and
+            // re-rendering an identical frame is pure waste.
+            if tick_count > 0 || self.dirty {
+                primitives::clear_buffer(buf, self.background);
+                self.animation.render(buf, w, h);
+                self.dirty = false;
+            }
         } else {
             for _ in 0..tick_count {
                 self.animation.tick();
@@ -162,6 +167,7 @@ impl AnimationPlayer {
         let mut buf = vec![0u8; buf_size];
         primitives::clear_buffer(&mut buf, self.background);
         self.buffer = Some(buf);
+        self.dirty = true;
     }
 
     /// Copies the internal BGRA buffer into the raw `wl_shm` slice `dst`

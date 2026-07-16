@@ -329,6 +329,10 @@ impl Animation for Mountain {
     /// Each call to `tick()` processes exactly one cell draw step, matching the
     /// C `draw_mountain()` → `drawamountain()` → advance x/y pattern.
     fn tick(&mut self) {
+        // The player's buffer persists between frames (clears_each_frame is
+        // false), so render() only needs this tick's ops. Without this the
+        // queue replays every op since startup and grows without bound.
+        self.draw_ops.clear();
         match self.stage {
             0 => {
                 // Draw one quad cell

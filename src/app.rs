@@ -114,13 +114,10 @@ impl App {
         height: i32,
         scale: i32,
     ) -> Result<(), String> {
-        let should_clear = self
-            .playlist
-            .as_ref()
-            .map(|p| p.clears_each_frame())
-            .unwrap_or(true);
-
-        if should_clear {
+        // Only fill the background when there's no animation: blit_into
+        // overwrites the full buffer anyway (ensure_sized just below
+        // guarantees matching dimensions), so a fill before it is pure waste.
+        if self.playlist.is_none() {
             let bg = self.config.background_color;
             crate::render::background::render_solid_color(buf, (bg.r, bg.g, bg.b, bg.a))?;
         }
