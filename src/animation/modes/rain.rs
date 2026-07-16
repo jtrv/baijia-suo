@@ -336,13 +336,14 @@ impl Animation for Rain {
         self.height = config.height;
         self.ncolors = if config.ncolors <= 0 { 64 } else { config.ncolors };
         // Deviation from xlockmore: its 35ms clock and absolute px/tick drop
-        // speeds were tuned for ~480px-tall screens; on taller panels drops
+        // speeds were tuned for era CRT heights; on taller panels drops
         // cross the screen proportionally slower. Scale *time* rather than
         // the offsets — segment geometry stays bit-for-bit upstream, and the
-        // whole scene (fall, splash, respawn) plays uniformly faster, exactly
-        // like the original at era resolution. Never slower than upstream.
+        // whole scene (fall, splash, respawn) plays uniformly faster.
+        // Reference height tuned to 560 (a straight 480 felt slightly
+        // fast); never faster than that, never slower than upstream.
         let base_us = if config.delay_us == 0 { 35_000 } else { config.delay_us };
-        self.delay_us = base_us * 480 / (config.height.max(480) as u64);
+        self.delay_us = base_us * 560 / (config.height.max(560) as u64);
 
         // xlockmore: 50/50 left-to-right vs right-to-left.
         self.direction = if rng.random_range(0..2) == 1 { -1 } else { 1 };
