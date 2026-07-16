@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/braid.c.
 
-use crate::animation::primitives::{draw_line, Color};
+use crate::animation::primitives::{draw_thick_line, Color};
 use crate::animation::{AnimConfig, Animation};
 use rand::Rng;
 use std::f32::consts::PI;
@@ -312,7 +312,7 @@ impl Animation for Braid {
                             let x_2 = (wt1 * r2 + wt2 * r1) * (t + t_inc + psi).cos() + self.center_x;
                             let y_2 = (wt1 * r2 + wt2 * r1) * (t + t_inc + psi).sin() + self.center_y;
                             
-                            draw_line(buffer, width, height, x_1 as i32, y_1 as i32, x_2 as i32, y_2 as i32, c_rgb);
+                            draw_thick_line(buffer, width, height, x_1 as i32, y_1 as i32, x_2 as i32, y_2 as i32, self.linewidth, c_rgb);
                         }
                         
                         let mut color_use2 = color + SPINRATE * comp_back[s + 1]
@@ -338,7 +338,7 @@ impl Animation for Braid {
                             let x_2 = (wt1 * r1 + wt2 * r2) * (t + t_inc + psi).cos() + self.center_x;
                             let y_2 = (wt1 * r1 + wt2 * r2) * (t + t_inc + psi).sin() + self.center_y;
 
-                            draw_line(buffer, width, height, x_1 as i32, y_1 as i32, x_2 as i32, y_2 as i32, c_rgb2);
+                            draw_thick_line(buffer, width, height, x_1 as i32, y_1 as i32, x_2 as i32, y_2 as i32, self.linewidth, c_rgb2);
                         }
 
                     } else {
@@ -359,7 +359,7 @@ impl Animation for Braid {
                         let x_2 = r1 * (t + t_inc + psi).cos() + self.center_x;
                         let y_2 = r1 * (t + t_inc + psi).sin() + self.center_y;
 
-                        draw_line(buffer, width, height, x_1 as i32, y_1 as i32, x_2 as i32, y_2 as i32, c_rgb);
+                        draw_thick_line(buffer, width, height, x_1 as i32, y_1 as i32, x_2 as i32, y_2 as i32, self.linewidth, c_rgb);
                     }
                 }
                 t += t_inc;

@@ -105,12 +105,21 @@ pub fn draw_line(
     buffer: &mut [u8],
     width: u32,
     height: u32,
-    mut x0: i32,
-    mut y0: i32,
+    x0: i32,
+    y0: i32,
     x1: i32,
     y1: i32,
     color: Color,
 ) {
+    // X11 rasterizes a thin line identically regardless of drawing
+    // direction, and modes rely on that: several erase by redrawing a
+    // segment with swapped endpoints (e.g. attraction's tail mode).
+    // Bresenham tie-breaks are direction-dependent, so canonicalize.
+    let (mut x0, mut y0, x1, y1) = if (x1, y1) < (x0, y0) {
+        (x1, y1, x0, y0)
+    } else {
+        (x0, y0, x1, y1)
+    };
     let dx = (x1 - x0).abs();
     let dy = -(y1 - y0).abs();
     let sx = if x0 < x1 { 1 } else { -1 };
@@ -592,8 +601,8 @@ pub fn draw_thick_line(
     buffer: &mut [u8],
     width: u32,
     height: u32,
-    mut x0: i32,
-    mut y0: i32,
+    x0: i32,
+    y0: i32,
     x1: i32,
     y1: i32,
     lw: i32,
@@ -603,6 +612,12 @@ pub fn draw_thick_line(
         draw_line(buffer, width, height, x0, y0, x1, y1, color);
         return;
     }
+    // Same direction-canonicalization as draw_line (see comment there).
+    let (mut x0, mut y0, x1, y1) = if (x1, y1) < (x0, y0) {
+        (x1, y1, x0, y0)
+    } else {
+        (x0, y0, x1, y1)
+    };
     let r = lw / 2;
     let dx = (x1 - x0).abs();
     let dy = -(y1 - y0).abs();

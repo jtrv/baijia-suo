@@ -283,7 +283,10 @@ impl Maze {
         let mut rng = rand::rng();
         let rand_num = rng.random_range(0..4);
         self.threed = if rand_num == 1 { 1 } else { 0 };
-        self.space = if rand_num == 0 { 0 } else { 1 };
+        // Deviation from xlockmore: upstream picks space = 0 for 1 in 4
+        // mazes, which makes the solver fill corridors completely — you
+        // can't see the path it took. Always keep the 1px inset.
+        self.space = 1;
         
         let minsize = self.space * 4 + 3 + self.threed;
         let max_grid_size = ((self.width.min(self.height) as i32) - 1) / MINGRIDSIZE;

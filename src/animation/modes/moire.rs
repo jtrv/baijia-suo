@@ -22,7 +22,11 @@ use rand::Rng;
 // *random: true, .background: blue, .foreground: red
 const DELAY_SEC: u64 = 5;
 const OFFSET: i32 = 50;
-const CHUNK_SIZE: i32 = 20;
+// Deviation from xscreensaver: moire.c draws 20-row chunks every 50ms
+// (400 rows/s), a visibly steppy sweep. Draw 7-row chunks every 17.5ms —
+// the same 400 rows/s, just finer-grained, so the scan glides instead of
+// stepping. The finished-screen pause is unchanged.
+const CHUNK_SIZE: i32 = 7;
 
 fn rgb_to_hsv(r: u16, g: u16, b: u16) -> (i32, f64, f64) {
     let rr = r as f64 / 65535.0;
@@ -141,7 +145,7 @@ impl Animation for Moire {
             draw_yo: 0,
             draw_factor: 1,
             pixels,
-            next_delay_us: DELAY_SEC * 10_000,
+            next_delay_us: DELAY_SEC * 3_500, // 7 rows per chunk (see CHUNK_SIZE), same rows/s as upstream
         }
     }
 
@@ -176,7 +180,7 @@ impl Animation for Moire {
             self.draw_y = 0;
             self.next_delay_us = DELAY_SEC * 1_000_000; // pause on the finished screen
         } else {
-            self.next_delay_us = DELAY_SEC * 10_000;
+            self.next_delay_us = DELAY_SEC * 3_500;
         }
     }
 
