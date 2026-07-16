@@ -97,7 +97,7 @@ impl WhirlwindWarp {
     }
 
     /// Move a star according to acting forcefields
-    fn stars_move(&mut self, pp: usize) {
+    fn stars_move(&mut self, pp: usize, rot_cos: f32, rot_sin: f32) {
         let mut x = self.cx[pp];
         let mut y = self.cy[pp];
 
@@ -118,8 +118,8 @@ impl WhirlwindWarp {
 
         // Rotation
         if self.fon[2] {
-            let nx = x * (1.1 * self.var[2]).cos() + y * (1.1 * self.var[2]).sin();
-            let ny = -x * (1.1 * self.var[2]).sin() + y * (1.1 * self.var[2]).cos();
+            let nx = x * rot_cos + y * rot_sin;
+            let ny = -x * rot_sin + y * rot_cos;
             x = nx;
             y = ny;
         }
@@ -304,13 +304,17 @@ impl Animation for WhirlwindWarp {
 
         // Move current points
         let (w, h) = (self.scrwid as u32, self.scrhei as u32);
+        // Rotation angle is constant across this loop (only adjusted afterwards),
+        // so compute cos/sin once instead of twice per star.
+        let rot_cos = (1.1 * self.var[2]).cos();
+        let rot_sin = (1.1 * self.var[2]).sin();
         for p in 0..self.ps {
             // Erase old
             let (ox, oy) = (self.tx[self.nt], self.ty[self.nt]);
             fill_rect(&mut self.buffer, w, h, ox, oy, self.starsize, BG);
 
             // Move
-            self.stars_move(p);
+            self.stars_move(p, rot_cos, rot_sin);
             // If moved off screen, create a new one
             if self.cx[p] <= -0.9999
                 || self.cx[p] >= 0.9999

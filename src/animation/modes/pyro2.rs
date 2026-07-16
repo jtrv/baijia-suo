@@ -18,6 +18,7 @@
 
 #![allow(dead_code, unused_variables, unused_assignments, unused_imports)]
 use rand::Rng;
+use std::sync::OnceLock;
 
 use crate::animation::primitives::{draw_line, Color};
 use crate::animation::{AnimConfig, Animation};
@@ -101,11 +102,7 @@ struct Pyro {
     color2: isize,
 }
 
-fn get_color(hue_index: usize, ttl: i32) -> Color {
-    let ttl_ratio = (ttl as f32 / EXP_MAX_TTL as f32).clamp(0.0, 1.0);
-    let mut shade = 19 - (ttl_ratio * 20.0) as i32;
-    shade = shade.clamp(0, 19);
-
+fn color_for_shade(hue_index: usize, shade: i32) -> Color {
     let is_white = hue_index == 0;
     let h = if hue_index > 0 { (hue_index - 1) as f32 * 60.0 } else { 0.0 } / 360.0;
 
@@ -125,6 +122,29 @@ fn get_color(hue_index: usize, ttl: i32) -> Color {
     };
 
     Color::from_hsl(h, s, l)
+}
+
+// (hue_index, ttl) maps onto at most PYRO_NHUES * PYRO_NSHADES distinct
+// colors, so precompute them all once instead of re-deriving via HSL math
+// for every live spark on every frame.
+static COLOR_TABLE: OnceLock<[[Color; PYRO_NSHADES]; PYRO_NHUES]> = OnceLock::new();
+
+fn get_color(hue_index: usize, ttl: i32) -> Color {
+    let ttl_ratio = (ttl as f32 / EXP_MAX_TTL as f32).clamp(0.0, 1.0);
+    let mut shade = 19 - (ttl_ratio * 20.0) as i32;
+    shade = shade.clamp(0, 19);
+
+    let table = COLOR_TABLE.get_or_init(|| {
+        let mut table = [[Color::new(0, 0, 0, 0); PYRO_NSHADES]; PYRO_NHUES];
+        for (hue_index, row) in table.iter_mut().enumerate() {
+            for (shade, cell) in row.iter_mut().enumerate() {
+                *cell = color_for_shade(hue_index, shade as i32);
+            }
+        }
+        table
+    });
+
+    table[hue_index][shade as usize]
 }
 
 impl Pyro {

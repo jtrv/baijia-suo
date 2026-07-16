@@ -275,6 +275,7 @@ pub struct Flow {
     m: [[f64; 3]; 3],
     swarm_count: usize,
     breaks: Vec<usize>,
+    palette: Vec<Color>,
 
     count_arg: i32,
     size_arg: i32,
@@ -684,7 +685,8 @@ impl Animation for Flow {
         }
         self.swarm_count = swarm;
         
-        self.breaks = vec![self.taillen; self.beecount];
+        self.breaks.clear();
+        self.breaks.resize(self.beecount, self.taillen);
         for b in 0..self.beecount {
             for i in 0..self.taillen {
                 if self.yperiod > 0.0 && self.p[b][i].y > self.yperiod {
@@ -745,9 +747,8 @@ impl Animation for Flow {
                 }
                 
                 let col_idx = b % (self.ncolors.max(2) - 1);
-                let hue = col_idx as f32 / (self.ncolors.max(2) - 1) as f32;
-                let color = Color::from_hsl(hue, 1.0, 0.5);
-                
+                let color = self.palette[col_idx];
+
                 let px1 = hw + w_f * a1.y / a1.x;
                 let py1 = hh + w_f * a1.z / a1.x;
                 let px2 = hw + w_f * a2.y / a2.x;
@@ -769,9 +770,8 @@ impl Animation for Flow {
             }
             
             let col_idx = b % (self.ncolors.max(2) - 1);
-            let hue = col_idx as f32 / (self.ncolors.max(2) - 1) as f32;
-            let color = Color::from_hsl(hue, 1.0, 0.5);
-            
+            let color = self.palette[col_idx];
+
             let end = self.taillen.min(self.count);
             let break_idx = if self.breaks.len() > b { self.breaks[b] } else { self.taillen };
             
@@ -825,6 +825,8 @@ impl Animation for Flow {
         self.ncolors = config.ncolors.max(2) as usize;
         self.cycles = if config.cycles <= 0 { 10000 } else { config.cycles as usize };
         self.delay_us = config.delay_us;
+        let n = self.ncolors - 1;
+        self.palette = (0..n).map(|i| Color::from_hsl(i as f32 / n as f32, 1.0, 0.5)).collect();
         self.do_init();
     }
 

@@ -82,6 +82,7 @@ struct DrawOp {
 fn build_tree(
     ops: &mut Vec<DrawOp>,
     ncolors: i32,
+    palette: &[Color],
     x: i16,
     y: i16,
     len: i16,
@@ -106,7 +107,7 @@ fn build_tree(
 
     // Color for this level (advance by COLORSPEED after drawing)
     let color = if ncolors > 2 {
-        Color::from_hsl(c as f32 / ncolors as f32, 1.0, 0.5)
+        palette[c as usize]
     } else {
         Color::new(255, 255, 255, 255)
     };
@@ -152,8 +153,8 @@ fn build_tree(
     let new_len = ((len as i32 * REDUCE * 10) / 1000) as i16;
 
     if level < ITERLEVEL {
-        build_tree(ops, ncolors, x_1, y_1, new_len, a1, as_, c, level + 1);
-        build_tree(ops, ncolors, x_2, y_2, new_len, a2, as_, c, level + 1);
+        build_tree(ops, ncolors, palette, x_1, y_1, new_len, a1, as_, c, level + 1);
+        build_tree(ops, ncolors, palette, x_2, y_2, new_len, a2, as_, c, level + 1);
     }
 }
 
@@ -168,6 +169,7 @@ pub struct Forest {
     ntrees: i32,  // trees to draw per cycle
     cycles: i32,  // frames per cycle (reset period)
     ncolors: i32, // palette size
+    palette: Vec<Color>,
 
     /// Draw ops accumulated by tick(), consumed by render()
     ops: Vec<DrawOp>,
@@ -191,6 +193,12 @@ impl Forest {
         } else {
             c
         }
+    }
+
+    fn build_palette(ncolors: i32) -> Vec<Color> {
+        (0..ncolors.max(0))
+            .map(|i| Color::from_hsl(i as f32 / ncolors as f32, 1.0, 0.5))
+            .collect()
     }
 }
 
@@ -221,6 +229,7 @@ impl Animation for Forest {
             ntrees,
             cycles,
             ncolors,
+            palette: Self::build_palette(ncolors),
             ops: Vec::new(),
             needs_clear: Cell::new(true),
             delay_us,
@@ -259,7 +268,7 @@ impl Animation for Forest {
             };
 
             let trunk_color = if self.ncolors > 2 {
-                Color::from_hsl(c as f32 / self.ncolors as f32, 1.0, 0.5)
+                self.palette[c as usize]
             } else {
                 Color::new(255, 255, 255, 255)
             };
@@ -293,6 +302,7 @@ impl Animation for Forest {
             build_tree(
                 &mut self.ops,
                 self.ncolors,
+                &self.palette,
                 x_2,
                 y_2,
                 branch_len,
@@ -340,6 +350,7 @@ impl Animation for Forest {
         } else {
             config.ncolors
         };
+        self.palette = Self::build_palette(self.ncolors);
         self.cycles = if config.cycles <= 0 {
             DEFAULT_CYCLES
         } else {
