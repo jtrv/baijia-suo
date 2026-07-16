@@ -128,13 +128,8 @@ fn init_drop(
     let y_range = (y_max - y_min).max(1);
     drop.pool_y = y_min + rng.random_range(0..y_range);
 
-    // Deviation from xlockmore: the original's 5-9/20-39 px-per-tick offsets
-    // are absolute speeds tuned for ~480px-tall screens; unscaled, drops
-    // cross a 1080p panel at half the visual rate. Scale both axes by screen
-    // height so the fall angle and screen-relative speed match the era look.
-    let speed_scale = height as i32;
-    drop.offset_x = ((5 + rng.random_range(0..5)) * speed_scale / 480).max(1);
-    drop.offset_y = ((20 + rng.random_range(0..20)) * speed_scale / 480).max(1);
+    drop.offset_x = 5 + rng.random_range(0..5);
+    drop.offset_y = 20 + rng.random_range(0..20);
 
     // xlockmore initial endpoints — note that the initial `x1 = x0 + offset_x`
     // is HARDCODED to the positive direction. Only subsequent advances multiply
@@ -336,7 +331,14 @@ impl Animation for Rain {
         self.width = config.width;
         self.height = config.height;
         self.ncolors = if config.ncolors <= 0 { 64 } else { config.ncolors };
-        self.delay_us = if config.delay_us == 0 { 35_000 } else { config.delay_us };
+        // Deviation from xlockmore: its 35ms clock and absolute px/tick drop
+        // speeds were tuned for ~480px-tall screens; on taller panels drops
+        // cross the screen proportionally slower. Scale *time* rather than
+        // the offsets — segment geometry stays bit-for-bit upstream, and the
+        // whole scene (fall, splash, respawn) plays uniformly faster, exactly
+        // like the original at era resolution. Never slower than upstream.
+        let base_us = if config.delay_us == 0 { 35_000 } else { config.delay_us };
+        self.delay_us = base_us * 480 / (config.height.max(480) as u64);
 
         // xlockmore: 50/50 left-to-right vs right-to-left.
         self.direction = if rng.random_range(0..2) == 1 { -1 } else { 1 };
