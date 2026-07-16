@@ -26,11 +26,18 @@ use crate::animation::{AnimConfig, Animation};
 const MINSIZE: i32 = 20;
 const MINBUBBLES: i32 = 1;
 
+/// Sub-ticks per original 100ms xlockmore frame. The chunky 10fps clock is
+/// kept for all game logic; only the boil rise is interpolated across
+/// sub-ticks so bubbles move smoothly (deviation from the original).
+const SUBSTEPS: i32 = 5;
+
 #[derive(Clone)]
 struct BubbleType {
     x: i32,
     y: i32,
     life: i32,
+    /// Pixels this bubble rises over the current 100ms step (boil only).
+    rise: i32,
 }
 
 pub struct Bubble {
@@ -43,6 +50,8 @@ pub struct Bubble {
     colors: f32,
     ncolors: usize,
     delay_us: u64,
+    /// Which sub-tick of the current 100ms step we're on (0..SUBSTEPS).
+    subtick: i32,
 }
 
 fn draw_hline(buffer: &mut [u8], width: u32, height: u32, x1: i32, x2: i32, y: i32, color: Color) {
@@ -144,6 +153,7 @@ impl Animation for Bubble {
             colors: 0.0,
             ncolors: 64,
             delay_us: config.delay_us,
+            subtick: 0,
         };
         b.reset(config);
         b
@@ -152,39 +162,59 @@ impl Animation for Bubble {
     fn tick(&mut self) {
         let mut rng = rand::rng();
 
-        self.colors += 1.0;
-        if self.colors >= self.ncolors as f32 {
-            self.colors = 0.0;
-        }
+        // All original xlockmore logic (color cycle, growth, pop, spawn)
+        // advances once per SUBSTEPS ticks — the original 100ms cadence.
+        let t = self.subtick;
+        self.subtick = (self.subtick + 1) % SUBSTEPS;
 
-        let n = self.bubbles.len();
-        for i in 0..n {
-            if self.bubbles[i].life != 0 {
-                if self.bubbles[i].life + 1 > self.d - rng.random_range(0..16) || self.bubbles[i].y < 0 {
-                    self.bubbles[i].life = 0;
-                } else {
+        if t == 0 {
+            self.colors += 1.0;
+            if self.colors >= self.ncolors as f32 {
+                self.colors = 0.0;
+            }
+
+            let n = self.bubbles.len();
+            for i in 0..n {
+                if self.bubbles[i].life != 0 {
+                    if self.bubbles[i].life + 1 > self.d - rng.random_range(0..16) || self.bubbles[i].y < 0 {
+                        self.bubbles[i].life = 0;
+                        self.bubbles[i].rise = 0;
+                    } else {
+                        self.bubbles[i].life += 1;
+                        if self.boil {
+                            // Original jumps y by life/2 here; we bank the
+                            // distance and spread it across the sub-ticks.
+                            self.bubbles[i].rise = self.bubbles[i].life / 2;
+                        }
+                    }
+                }
+            }
+
+            if n > 0 {
+                let i = rng.random_range(0..n);
+                if self.bubbles[i].life == 0 {
+                    self.bubbles[i].x = rng.random_range(0..self.width.max(1) as i32);
+                    if self.boil {
+                        let offset = if self.height >= 16 { rng.random_range(0..=(self.height as i32 / 16)) } else { 0 };
+                        self.bubbles[i].y = self.height as i32 - offset;
+                    } else {
+                        self.bubbles[i].y = rng.random_range(0..self.height.max(1) as i32);
+                    }
+
                     self.bubbles[i].life += 1;
                     if self.boil {
-                        self.bubbles[i].y -= self.bubbles[i].life / 2;
+                        self.bubbles[i].rise = self.bubbles[i].life / 2; // 0 at life 1, like the original
                     }
                 }
             }
         }
 
-        if n > 0 {
-            let i = rng.random_range(0..n);
-            if self.bubbles[i].life == 0 {
-                self.bubbles[i].x = rng.random_range(0..self.width.max(1) as i32);
-                if self.boil {
-                    let offset = if self.height >= 16 { rng.random_range(0..=(self.height as i32 / 16)) } else { 0 };
-                    self.bubbles[i].y = self.height as i32 - offset;
-                } else {
-                    self.bubbles[i].y = rng.random_range(0..self.height.max(1) as i32);
-                }
-                
-                self.bubbles[i].life += 1;
-                if self.boil {
-                    self.bubbles[i].y -= self.bubbles[i].life / 2;
+        // Smooth boil rise: Bresenham split of `rise` over SUBSTEPS, so the
+        // per-sub-tick deltas sum exactly to the original per-step jump.
+        if self.boil {
+            for b in self.bubbles.iter_mut() {
+                if b.life != 0 && b.rise != 0 {
+                    b.y -= b.rise * (t + 1) / SUBSTEPS - b.rise * t / SUBSTEPS;
                 }
             }
         }
@@ -237,9 +267,12 @@ impl Animation for Bubble {
         self.width = config.width;
         self.height = config.height;
         self.ncolors = config.ncolors.max(2) as usize;
-        // xlockmore default was 100000us (10fps). AnimConfig default is 20000us (50fps).
-        // The original bubble animation expects 100ms delay.
-        self.delay_us = if config.delay_us > 0 { config.delay_us } else { 100_000 };
+        // xlockmore's default step is 100000us (10fps); the configured delay
+        // is that step length. We tick SUBSTEPS times per step (see tick())
+        // to smooth the boil rise, so the frame clock divides accordingly.
+        let step_us = if config.delay_us > 0 { config.delay_us } else { 100_000 };
+        self.delay_us = (step_us / SUBSTEPS as u64).max(1);
+        self.subtick = 0;
 
         self.direction = rng.random_range(0..4);
         self.boil = rng.random_bool(0.5);
@@ -264,7 +297,7 @@ impl Animation for Bubble {
             count.max(MINBUBBLES) as usize
         };
 
-        self.bubbles = vec![BubbleType { x: 0, y: 0, life: 0 }; nbubbles];
+        self.bubbles = vec![BubbleType { x: 0, y: 0, life: 0, rise: 0 }; nbubbles];
         self.colors = rng.random_range(0..self.ncolors.max(1) as u32) as f32;
     }
 

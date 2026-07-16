@@ -128,8 +128,13 @@ fn init_drop(
     let y_range = (y_max - y_min).max(1);
     drop.pool_y = y_min + rng.random_range(0..y_range);
 
-    drop.offset_x = 5 + rng.random_range(0..5);
-    drop.offset_y = 20 + rng.random_range(0..20);
+    // Deviation from xlockmore: the original's 5-9/20-39 px-per-tick offsets
+    // are absolute speeds tuned for ~480px-tall screens; unscaled, drops
+    // cross a 1080p panel at half the visual rate. Scale both axes by screen
+    // height so the fall angle and screen-relative speed match the era look.
+    let speed_scale = height as i32;
+    drop.offset_x = ((5 + rng.random_range(0..5)) * speed_scale / 480).max(1);
+    drop.offset_y = ((20 + rng.random_range(0..20)) * speed_scale / 480).max(1);
 
     // xlockmore initial endpoints — note that the initial `x1 = x0 + offset_x`
     // is HARDCODED to the positive direction. Only subsequent advances multiply
