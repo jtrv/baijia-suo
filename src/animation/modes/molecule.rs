@@ -54,6 +54,8 @@
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
 use rand::Rng;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -139,6 +141,12 @@ struct MoleculeDef {
     title_lines: Vec<String>,
     atoms: Vec<MoleculeAtom>,
     bonds: Vec<MoleculeBond>,
+    /// atom.id -> index into `atoms`, built once at parse time so render()'s
+    /// CONECT bond lookups are O(1) instead of a linear scan per bond
+    /// endpoint per frame. First occurrence wins, matching the old
+    /// `.iter().find()` semantics for (in practice never occurring)
+    /// duplicate ids.
+    id_index: HashMap<i32, usize>,
 }
 
 /// Normalise an element symbol to title case ("CL" -> "Cl", "c" -> "C"),
@@ -236,10 +244,15 @@ fn parse_molecules() -> Vec<MoleculeDef> {
             if !formula.is_empty() {
                 title_lines.push(formula);
             }
+            let mut id_index = HashMap::new();
+            for (i, a) in atoms.iter().enumerate() {
+                id_index.entry(a.id).or_insert(i);
+            }
             defs.push(MoleculeDef {
                 title_lines,
                 atoms: std::mem::take(atoms),
                 bonds: std::mem::take(bonds),
+                id_index,
             });
         }
         atoms.clear();
@@ -424,6 +437,12 @@ pub struct Molecule {
     draw_tick: i32,
     last_change_time: u64,
     timeout_secs: u64,
+
+    /// Per-pixel depth buffer scratch for render(&self), persistent so a
+    /// steady-state frame doesn't reallocate; grown (never shrunk) to the
+    /// largest bounding box seen, and only the frame's used prefix is
+    /// re-filled with f32::INFINITY each render.
+    depth_scratch: RefCell<Vec<f32>>,
 }
 
 impl Molecule {
@@ -468,6 +487,8 @@ impl Animation for Molecule {
             last_change_time: 0,
             // DEF_TIMEOUT is 20 seconds.
             timeout_secs: if config.cycles <= 0 { 20 } else { config.cycles as u64 },
+
+            depth_scratch: RefCell::new(Vec::new()),
         };
         m.reset(config);
         m
@@ -661,17 +682,18 @@ impl Animation for Molecule {
             Some((sx, sy, ppu))
         };
 
-        struct ProjAtom {
-            id: i32,
+        // Borrows its label from `m.atoms` instead of cloning a String per
+        // atom per render.
+        struct ProjAtom<'a> {
             world: Vec3,
             sx: f64,
             sy: f64,
             ppu: f64,
             data: AtomData,
-            label: String,
+            label: &'a str,
             visible: bool,
         }
-        let mut projected: Vec<ProjAtom> = Vec::with_capacity(m.atoms.len());
+        let mut projected: Vec<ProjAtom<'_>> = Vec::with_capacity(m.atoms.len());
         for a in &m.atoms {
             let world = transform(a.x, a.y, a.z);
             let (sx, sy, ppu, visible) = match project(world) {
@@ -679,13 +701,12 @@ impl Animation for Molecule {
                 None => (0.0, 0.0, 0.0, false),
             };
             projected.push(ProjAtom {
-                id: a.id,
                 world,
                 sx,
                 sy,
                 ppu,
                 data: a.data.clone(),
-                label: a.label.clone(),
+                label: a.label.as_str(),
                 visible,
             });
         }
@@ -693,8 +714,8 @@ impl Animation for Molecule {
         // Build a depth-sorted draw list: back-to-front so nearer atoms occlude
         // farther ones (and their labels).
         enum DrawItem<'a> {
-            Atom(&'a ProjAtom),
-            Bond(&'a ProjAtom, &'a ProjAtom, i32),
+            Atom(&'a ProjAtom<'a>),
+            Bond(&'a ProjAtom<'a>, &'a ProjAtom<'a>, i32),
         }
         let mut draw_list: Vec<(f64, DrawItem)> = Vec::new();
         if DO_ATOMS {
@@ -702,7 +723,10 @@ impl Animation for Molecule {
                 draw_list.push((a.world.z, DrawItem::Atom(a)));
             }
         }
-        let find_by_id = |id: i32| projected.iter().find(|a| a.id == id);
+        // atom.id -> index into `projected` (built in the same order as
+        // `m.atoms`), via the molecule's precomputed id_index: O(1) instead
+        // of a linear scan per bond endpoint per frame.
+        let find_by_id = |id: i32| m.id_index.get(&id).map(|&i| &projected[i]);
         if DO_BONDS {
             for b in &m.bonds {
                 if let (Some(p1), Some(p2)) = (find_by_id(b.from), find_by_id(b.to)) {
@@ -737,12 +761,17 @@ impl Animation for Molecule {
             bx1 = bx1.max((a.sx + r + 1.0).ceil() as i32);
             by1 = by1.max((a.sy + r + 1.0).ceil() as i32);
         }
-        let mut depth = DepthBuf::new(
-            bx0.max(0),
-            by0.max(0),
-            bx1.min(width as i32 - 1),
-            by1.min(height as i32 - 1),
-        );
+        let dx0 = bx0.max(0);
+        let dy0 = by0.max(0);
+        let dx1 = bx1.min(width as i32 - 1);
+        let dy1 = by1.min(height as i32 - 1);
+        let needed = ((dx1 - dx0 + 1).max(0) * (dy1 - dy0 + 1).max(0)) as usize;
+        let mut depth_data = self.depth_scratch.borrow_mut();
+        if depth_data.len() < needed {
+            depth_data.resize(needed, f32::INFINITY);
+        }
+        depth_data[..needed].fill(f32::INFINITY);
+        let mut depth = DepthBuf::new(&mut depth_data[..needed], dx0, dy0, dx1, dy1);
 
         for (_, item) in &draw_list {
             match item {
@@ -902,24 +931,20 @@ fn blend_pixel(
 /// view-space distance from the camera (smaller = nearer).  Atoms and bonds are
 /// resolved by this per-pixel depth test rather than draw order, so junctions
 /// transition per-pixel and a bond crossing in front of a sphere draws over it.
-struct DepthBuf {
-    data: Vec<f32>,
+struct DepthBuf<'a> {
+    /// Borrowed from the caller's persistent depth_scratch buffer (sized to
+    /// exactly this frame's bbox) rather than a fresh per-frame Vec.
+    data: &'a mut [f32],
     x0: i32,
     y0: i32,
     w: i32,
     h: i32,
 }
-impl DepthBuf {
-    fn new(x0: i32, y0: i32, x1: i32, y1: i32) -> Self {
+impl<'a> DepthBuf<'a> {
+    fn new(data: &'a mut [f32], x0: i32, y0: i32, x1: i32, y1: i32) -> Self {
         let w = (x1 - x0 + 1).max(0);
         let h = (y1 - y0 + 1).max(0);
-        DepthBuf {
-            data: vec![f32::INFINITY; (w * h) as usize],
-            x0,
-            y0,
-            w,
-            h,
-        }
+        DepthBuf { data, x0, y0, w, h }
     }
     /// Depth-test pixel (x,y) at `depth`; true if nearer-or-equal to what's
     /// stored, in which case it becomes the new nearest depth.  Callers only
@@ -966,7 +991,7 @@ fn draw_filled_sphere(
     cy: f64,
     radius: f64,
     base: Color,
-    depth: &mut DepthBuf,
+    depth: &mut DepthBuf<'_>,
     // World-space sphere radius and the view-space depth of its centre; the near
     // surface bulges toward the eye by world_r*sqrt(1-(d/radius)^2).
     world_r: f64,
@@ -1037,7 +1062,7 @@ fn draw_solid_bond(
     y1: f64,
     h1: f64,
     base: Color,
-    depth: &mut DepthBuf,
+    depth: &mut DepthBuf<'_>,
     // View-space depth at each endpoint and the tube's world radius: depth is
     // interpolated linearly along the axis, with the cross-section bulge added.
     depth0: f64,

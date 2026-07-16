@@ -27,6 +27,7 @@
 //! degrees (20*sin+35) so the lattice always shows three cube faces.
 
 use rand::Rng;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::f64::consts::PI;
 
@@ -78,6 +79,15 @@ pub struct Life3D {
     /// Cell state: ON bit 0x40, low 5 bits = live-neighbor count.
     base: Vec<u8>,
     cells: Vec<CellPos>,
+    /// Scratch buffers for run_life_3d, persistent to avoid a per-tick
+    /// alloc: new_cells accumulates next generation, checked_cells is the
+    /// visited-set (and doubles as the set of base indices touched this
+    /// generation, see the ClearMem comment below).
+    new_cells: Vec<CellPos>,
+    checked_cells: HashSet<CellPos>,
+    /// Painter's-algorithm scratch for render(&self); see mandelbrot.rs's
+    /// needs_clear for the interior-mutability precedent.
+    render_order: RefCell<Vec<(f64, CellPos)>>,
 
     birth_rule: u32,
     survival_rule: u32,
@@ -286,40 +296,49 @@ impl Life3D {
         // survival rule to the live cells themselves. C walks the live list
         // normalizing memory as it goes; a visited-set gives the same
         // evaluate-once semantics.
-        let mut new_cells = Vec::new();
-        let mut checked = HashSet::new();
+        self.new_cells.clear();
+        self.checked_cells.clear();
 
         for p in &self.cells {
             for n in 0..26 {
                 let q = Self::neighbor(*p, n);
-                if checked.insert(q) {
+                if self.checked_cells.insert(q) {
                     let c = self.base[Self::get_index(q.x, q.y, q.z)];
                     if Self::cell_state_3d(c) == OFF {
                         if (self.birth_rule & (1 << Self::cell_nbrs_3d(c))) != 0 {
                             visible = true;
-                            new_cells.push(q);
+                            self.new_cells.push(q);
                         }
                     } else if (self.survival_rule & (1 << Self::cell_nbrs_3d(c))) != 0 {
-                        new_cells.push(q);
+                        self.new_cells.push(q);
                     }
                 }
             }
-            if checked.insert(*p) {
+            if self.checked_cells.insert(*p) {
                 let c = self.base[Self::get_index(p.x, p.y, p.z)];
                 if Self::cell_state_3d(c) == ON
                     && (self.survival_rule & (1 << Self::cell_nbrs_3d(c))) != 0
                 {
-                    new_cells.push(*p);
+                    self.new_cells.push(*p);
                 }
             }
         }
 
-        // ClearMem + rebuild state.
-        self.base.fill(0);
-        for p in &new_cells {
+        // ClearMem + rebuild state. checked_cells is exactly the set of
+        // base indices touched this generation: every neighbor visited by
+        // step 1/2 above plus the live cells themselves (inserted via the
+        // `checked_cells.insert(*p)` above), which is exactly what step 1
+        // incremented (already-live cells keep their ON bit from the prior
+        // rebuild). So zeroing just those indices is equivalent to zeroing
+        // the whole 128x128x64 grid, without walking cells that were never
+        // touched.
+        for p in &self.checked_cells {
+            self.base[Self::get_index(p.x, p.y, p.z)] = 0;
+        }
+        for p in &self.new_cells {
             self.base[Self::get_index(p.x, p.y, p.z)] = ON;
         }
-        self.cells = new_cells;
+        std::mem::swap(&mut self.cells, &mut self.new_cells);
 
         if visible {
             self.no_change_count = 0;
@@ -727,6 +746,9 @@ impl Animation for Life3D {
             visible: false,
             base: vec![0; (MAXCOLUMNS * MAXROWS * MAXSTACKS) as usize],
             cells: Vec::new(),
+            new_cells: Vec::new(),
+            checked_cells: HashSet::new(),
+            render_order: RefCell::new(Vec::new()),
             birth_rule: 1 << 5,                     // B5
             survival_rule: (1 << 4) | (1 << 5),     // S45 (Carter Bays' 3D Life)
             ox: MAXCOLUMNS / 2,
@@ -779,17 +801,15 @@ impl Animation for Life3D {
 
         // Painter's algorithm: draw the furthest cubes first. Cells behind
         // the eye are skipped (C fills them black, same result).
-        let mut order: Vec<(f64, CellPos)> = self
-            .cells
-            .iter()
-            .filter_map(|p| {
-                let (d, front) = self.cell_view(p);
-                front.then_some((d, *p))
-            })
-            .collect();
+        let mut order = self.render_order.borrow_mut();
+        order.clear();
+        order.extend(self.cells.iter().filter_map(|p| {
+            let (d, front) = self.cell_view(p);
+            front.then_some((d, *p))
+        }));
         order.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
 
-        for (_, cell) in &order {
+        for (_, cell) in order.iter() {
             self.draw_cube(buffer, cell);
         }
     }

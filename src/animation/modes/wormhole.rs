@@ -18,6 +18,8 @@
  */
 
 use rand::Rng;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::f64::consts::PI;
 
 use crate::animation::primitives::{clear_buffer, draw_line, Color};
@@ -188,6 +190,11 @@ pub struct Wormhole {
     spiral: i32,
     changer: ColorChanger,
     stars: Vec<Option<StarLine>>,
+    // Min-heap of freed slot indices: pop always returns the lowest free
+    // index, matching the original `find(|s| s.is_none())` scan order
+    // exactly (draw order in render() depends on slot index, so this must
+    // stay first-fit, not just any free slot).
+    free_slots: BinaryHeap<Reverse<usize>>,
 }
 
 impl Wormhole {
@@ -199,6 +206,8 @@ impl Wormhole {
         let actualy = screen_y / 2;
         let want_x = rnd(&mut rng, screen_x - 50) + 25;
         let want_y = rnd(&mut rng, screen_y - 50) + 25;
+        let stars = vec![None; 64];
+        let free_slots = (0..stars.len()).map(Reverse).collect();
         Wormhole {
             screen_x,
             screen_y,
@@ -215,7 +224,8 @@ impl Wormhole {
             max_z: 600,
             spiral: 0,
             changer: ColorChanger::new(&mut rng),
-            stars: vec![None; 64],
+            stars,
+            free_slots,
         }
     }
 
@@ -240,8 +250,8 @@ impl Wormhole {
             end: self.init_star(self.max_z + rnd(rng, 6) + 4, ang),
         };
         // the C version doubles a fixed array; Vec growth is equivalent
-        match self.stars.iter_mut().find(|s| s.is_none()) {
-            Some(slot) => *slot = Some(star_new),
+        match self.free_slots.pop() {
+            Some(Reverse(idx)) => self.stars[idx] = Some(star_new),
             None => self.stars.push(Some(star_new)),
         }
     }
@@ -310,10 +320,11 @@ impl Animation for Wormhole {
             self.ang = gang(self.actualx, self.actualy, self.want_x, self.want_y);
         }
 
-        for slot in self.stars.iter_mut() {
+        for (i, slot) in self.stars.iter_mut().enumerate() {
             if let Some(star) = slot {
                 if star.advance(Z_SPEED) {
                     *slot = None;
+                    self.free_slots.push(Reverse(i));
                 }
             }
         }

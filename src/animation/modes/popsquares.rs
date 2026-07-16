@@ -11,7 +11,7 @@
  * Rust port of xscreensaver's popsquares.c for baijia-suo.
  */
 
-use crate::animation::primitives::{hsv_to_rgb, put_pixel, Color};
+use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
 use rand::Rng;
 
@@ -199,11 +199,7 @@ impl Animation for PopSquares {
 
     fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
         // the window background (#0000FF) shows through the 1px borders
-        for y in 0..height as i32 {
-            for x in 0..width as i32 {
-                put_pixel(buffer, width, height, x, y, self.bg);
-            }
-        }
+        clear_buffer(buffer, self.bg);
         for s in &self.squares {
             let color = self.colors[s.color.min(self.ncolors - 1)];
             let w = if BORDER != 0 { s.w - BORDER } else { s.w };

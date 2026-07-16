@@ -168,6 +168,26 @@ fn perturb(n: usize, dead: &mut [bool], ret: &mut [f64], x: &[f64], k: &[f64]) {
     }
 }
 
+/* Same as perturb(), but writes back into x in place: each index only ever
+ * reads and writes its own pair, so no snapshot of x is needed. */
+fn perturb_in_place(n: usize, dead: &mut [bool], x: &mut [f64], k: &[f64]) {
+    for i in 0..n {
+        if dead[i] {
+            continue;
+        }
+        let x1 = x[2 * i];
+        let x2 = x[2 * i + 1];
+        let k1 = k[2 * i];
+        let k2 = k[2 * i + 1];
+        if k1 * k1 + k2 * k2 > 0.1 || x1 * x1 + x2 * x2 > 1.0 - 1e-5 {
+            dead[i] = true;
+        } else {
+            x[2 * i] = x1 + k1;
+            x[2 * i + 1] = x2 + k2;
+        }
+    }
+}
+
 pub struct Euler2D {
     /* real framebuffer size */
     buf_w: u32,
@@ -255,7 +275,13 @@ impl Euler2D {
             calc_all_mod_dp2(&self.x, self.n_points, &self.dead, &self.p_coef, &mut self.mod_dp2);
         }
 
-        let x = if use_tempx { self.tempx.clone() } else { self.x.clone() };
+        /* Split-borrow: take x/tempx out so it can be read alongside the
+         * other mutated fields below without cloning, then put it back. */
+        let x = if use_tempx {
+            std::mem::take(&mut self.tempx)
+        } else {
+            std::mem::take(&mut self.x)
+        };
 
         for j in 0..self.n_vortex {
             if self.dead[j] {
@@ -337,6 +363,12 @@ impl Euler2D {
                 }
             }
         }
+
+        if use_tempx {
+            self.tempx = x;
+        } else {
+            self.x = x;
+        }
     }
 
     fn ode_solve(&mut self) {
@@ -381,8 +413,7 @@ impl Euler2D {
             }
             {
                 let mut x = std::mem::take(&mut self.x);
-                let x_old = x.clone();
-                perturb(self.n_points, &mut self.dead, &mut x, &x_old, &self.tempdiffx);
+                perturb_in_place(self.n_points, &mut self.dead, &mut x, &self.tempdiffx);
                 self.x = x;
             }
             std::mem::swap(&mut self.olddiffx, &mut self.diffx);
@@ -716,7 +747,19 @@ impl Animation for Euler2D {
             self.calc_all_p();
         }
 
-        let mut csegs: Vec<Seg> = Vec::with_capacity(self.n_points);
+        let (bw, bh, lw) = (self.buf_w, self.buf_h, self.line_width);
+
+        /* Reuse the buffer that's tail_len frames old: erase what it holds
+         * (if any) first, then clear and refill it in place as this tick's
+         * segs instead of allocating a fresh Vec every tick. */
+        let mut csegs: Vec<Seg> = std::mem::take(&mut self.old_segs[self.c_old_seg]);
+        if self.count != 0 {
+            for s in &csegs {
+                draw_seg(&mut self.buf, bw, bh, *s, lw, BLACK);
+            }
+        }
+        csegs.clear();
+
         for b in self.n_vortex..self.n_points {
             if self.dead[b] {
                 continue;
@@ -741,14 +784,6 @@ impl Animation for Euler2D {
         }
 
         if self.count != 0 {
-            let (bw, bh, lw) = (self.buf_w, self.buf_h, self.line_width);
-
-            /* erase the tail_len-frames-old segments in black */
-            let old = std::mem::take(&mut self.old_segs[self.c_old_seg]);
-            for s in &old {
-                draw_seg(&mut self.buf, bw, bh, *s, lw, BLACK);
-            }
-
             if self.colors > 2 {
                 /* render colour */
                 for col in 0..self.colors {

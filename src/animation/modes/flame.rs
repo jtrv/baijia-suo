@@ -296,13 +296,13 @@ impl Animation for Flame {
 
         self.num_points = 0;
         self.total_points = 0;
-        self.pixel_buf.clear();
 
         let color = self.color;
         let mut pts = self.pts;
         let mut num_points = 0usize;
         let mut total_points = 0u32;
-        let mut pixel_buf: Vec<(i32, i32, Color)> = Vec::new();
+        let mut pixel_buf = std::mem::take(&mut self.pixel_buf);
+        pixel_buf.clear();
 
         Self::recurse(
             &mut pts,

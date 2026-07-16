@@ -244,10 +244,14 @@ impl Intermomentary {
             };
             let dx = nx - dix;
             let dy = ny - diy;
-            let d = (dx * dx + dy * dy).sqrt();
+            let d2 = dx * dx + dy * dy;
+            let sum_r = nr + dir_;
 
-            // intersection test
-            if d < nr + dir_ {
+            // intersection test (radii are non-negative, so this is
+            // equivalent to `d < sum_r` without paying for a sqrt on
+            // every disc pair)
+            if d2 < sum_r * sum_r {
+                let d = d2.sqrt();
                 // complete containment test
                 if d > (nr - dir_).abs() {
                     // find solutions

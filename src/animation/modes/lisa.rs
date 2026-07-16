@@ -224,7 +224,9 @@ impl Lisa {
 
     fn calc_points(l: &mut Lisajous, loopcount: usize, additive: bool) {
         let phase = loopcount % l.nsteps;
-        let mut new_points = Vec::with_capacity(l.nsteps);
+        if l.points.len() != l.nsteps {
+            l.points = vec![(0.0, 0.0); l.nsteps];
+        }
 
         for pctr in 0..l.nsteps {
             let phi = (pctr as f64 - phase as f64) * l.pistep;
@@ -292,10 +294,8 @@ impl Lisa {
             xsum += l.center_x;
             ysum += l.center_y;
 
-            new_points.push((xsum.ceil(), ysum.ceil()));
+            l.points[pctr] = (xsum.ceil(), ysum.ceil());
         }
-
-        l.points = new_points;
 
         if l.melting > 0 {
             l.melting -= 1;
