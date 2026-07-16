@@ -242,8 +242,17 @@ fn draw_ellipse(
 // True if a drop is still falling (vs splashing). xlockmore: the head x must
 // stay clear of both screen edges by `max_radius` so the eventual splash
 // ellipse fits on screen, AND the head y must not yet have reached pool_y.
-fn is_falling(drop: &Drop, width: i32) -> bool {
-    drop.x1 < width - drop.max_radius && drop.x1 > drop.max_radius && drop.y1 < drop.pool_y
+// True if a drop is still falling (vs splashing).
+//
+// Deviation from xlockmore: the C also required the head x to stay
+// `max_radius` clear of both screen edges so the splash ellipse would fit
+// on screen — with the side effect that a drop drifting near an edge
+// splashed instantly at whatever height it was, reading as a mid-air
+// circle. Our drawing clips per-pixel, so edge drops can keep falling to
+// their pool depth and splash there (partly off-screen splashes clip
+// harmlessly).
+fn is_falling(drop: &Drop, _width: i32) -> bool {
+    drop.y1 < drop.pool_y
 }
 
 impl Animation for Rain {
@@ -340,10 +349,9 @@ impl Animation for Rain {
         // cross the screen proportionally slower. Scale *time* rather than
         // the offsets — segment geometry stays bit-for-bit upstream, and the
         // whole scene (fall, splash, respawn) plays uniformly faster.
-        // Reference height tuned by eye to 640 (a straight era 480 felt
-        // fast); never faster than that, never slower than upstream.
+        // Straight era-height scale; never slower than upstream.
         let base_us = if config.delay_us == 0 { 35_000 } else { config.delay_us };
-        self.delay_us = base_us * 640 / (config.height.max(640) as u64);
+        self.delay_us = base_us * 480 / (config.height.max(480) as u64);
 
         // xlockmore: 50/50 left-to-right vs right-to-left.
         self.direction = if rng.random_range(0..2) == 1 { -1 } else { 1 };
