@@ -117,6 +117,7 @@ fn init_drop(
     drop: &mut Drop,
     width: u32,
     height: u32,
+    direction: i32,
     colored_drops: bool,
     base_color: Option<f32>,
     ncolors: i32,
@@ -131,13 +132,16 @@ fn init_drop(
     drop.offset_x = 5 + rng.random_range(0..5);
     drop.offset_y = 20 + rng.random_range(0..20);
 
-    // xlockmore initial endpoints — note that the initial `x1 = x0 + offset_x`
-    // is HARDCODED to the positive direction. Only subsequent advances multiply
-    // by `direction`, so the very first segment of a leftward drop goes right
-    // for one frame before veering left. Faithful to the C bug.
+    // Deviation from xlockmore: the C hardcodes the initial `x1 = x0 +
+    // offset.x` to the positive direction and only multiplies by `direction`
+    // on subsequent advances, so every drop of a leftward storm kinks
+    // down-right for its first segment before veering left. At era
+    // resolution that was a subtle blip; at modern respawn rates it reads
+    // as rain visibly changing direction. Aim the first segment with the
+    // storm instead.
     drop.x0 = rng.random_range(0..(width as i32).max(1));
     drop.y0 = 0;
-    drop.x1 = drop.x0 + drop.offset_x;
+    drop.x1 = drop.x0 + direction * drop.offset_x;
     drop.y1 = drop.y0 + drop.offset_y;
 
     drop.radius = 0;
@@ -293,7 +297,7 @@ impl Animation for Rain {
                 }
 
                 if drop.radius > drop.max_radius {
-                    init_drop(drop, width, height, colored_drops, base_color, ncolors, &mut rng);
+                    init_drop(drop, width, height, direction, colored_drops, base_color, ncolors, &mut rng);
                 } else {
                     drop.radius += drop.radius_step;
                 }
@@ -359,6 +363,7 @@ impl Animation for Rain {
                 &mut drop,
                 config.width,
                 config.height,
+                self.direction,
                 self.colored_drops,
                 self.base_color,
                 self.ncolors,
