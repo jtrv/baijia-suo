@@ -19,6 +19,10 @@ pub struct AnimationPlayer {
     buffer: Option<Vec<u8>>,
     last_tick: Option<Instant>,
     next_wake: Option<Instant>,
+    /// Floor on the frame delay, from config `max_fps`. 0 = uncapped, i.e.
+    /// each mode's own clock (some ask for 100-1000 fps — binaryring,
+    /// starfish, discrete — which on a 60 Hz panel is pure battery drain).
+    min_delay_us: u64,
 }
 
 impl AnimationPlayer {
@@ -37,9 +41,15 @@ impl AnimationPlayer {
         }
         let registry = AnimRegistry::new();
         let animation = registry.create(mode_name, &params)?;
+        let min_delay_us = if params.max_fps > 0 {
+            1_000_000 / params.max_fps as u64
+        } else {
+            0
+        };
         Some(AnimationPlayer {
             animation,
             base_params: params,
+            min_delay_us,
             background: rgba_to_color(background_rgba),
             surface_size: None,
             buffer: None,
@@ -93,6 +103,7 @@ impl AnimationPlayer {
             self.next_wake = None;
             return;
         }
+        let delay_us = delay_us.max(self.min_delay_us);
 
         let tick_count = match self.last_tick {
             Some(last) => {
@@ -188,6 +199,36 @@ mod tests {
         assert_eq!(
             AnimationPlayer::default_delay_us("totally-unknown-mode"),
             16_666
+        );
+    }
+
+    #[test]
+    fn max_fps_clamps_fast_modes() {
+        // binaryring hardcodes a 10_000us (100 fps) clock; with max_fps = 60
+        // the wake interval must be clamped to 1_000_000 / 60.
+        let params = AnimConfig {
+            max_fps: 60,
+            ..AnimConfig::default()
+        };
+        let mut player = AnimationPlayer::new("binaryring", params, (0.0, 0.0, 0.0, 1.0))
+            .expect("binaryring is registered");
+        player.advance(Instant::now());
+        assert_eq!(
+            player.next_wake.unwrap() - player.last_tick.unwrap(),
+            Duration::from_micros(1_000_000 / 60)
+        );
+    }
+
+    #[test]
+    fn no_max_fps_means_no_cap() {
+        // Default max_fps = 0: binaryring runs at its own 10_000us clock.
+        let mut player =
+            AnimationPlayer::new("binaryring", AnimConfig::default(), (0.0, 0.0, 0.0, 1.0))
+                .expect("binaryring is registered");
+        player.advance(Instant::now());
+        assert_eq!(
+            player.next_wake.unwrap() - player.last_tick.unwrap(),
+            Duration::from_micros(10_000)
         );
     }
 

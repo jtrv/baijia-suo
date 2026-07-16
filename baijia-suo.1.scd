@@ -43,6 +43,11 @@ animation modes may be shown instead, optionally cycling between them.
 	Seconds each animation plays before cycling to the next. Only applies when
 	more than one mode is selected. Default 60.
 
+*--max-fps* <fps>
+	Cap animation frame rates. Some modes run their own clocks at 100+ fps,
+	which wastes battery on a 60 Hz panel. Unset means uncapped (each mode's
+	original clock).
+
 *--list-animations*
 	Print the available animation mode names and exit.
 
@@ -100,6 +105,7 @@ Keys mirror the long option names. Example:
 	color = "1a2b3c"
 	animation = ["spiral", "flame"]   # a string for one mode, or "random"
 	cycle = 60
+	max_fps = 60   # cap animation frame rates; unset = uncapped
 	daemonize = false
 
 	\[indicator]

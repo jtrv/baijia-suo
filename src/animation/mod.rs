@@ -18,6 +18,9 @@ pub struct AnimConfig {
     pub size: i32,
     pub ncolors: i32,
     pub delay_us: u64,
+    /// Frame-rate cap; 0 = uncapped (each mode's own clock, the original
+    /// behavior). Only read by the player, never by modes.
+    pub max_fps: u32,
 }
 
 impl Default for AnimConfig {
@@ -30,6 +33,7 @@ impl Default for AnimConfig {
             size: 1,
             ncolors: 64,
             delay_us: 20_000, // 50fps
+            max_fps: 0,
         }
     }
 }

@@ -542,6 +542,7 @@ impl Animation for Crystal {
                 size: 0,
                 ncolors: self.colors.len() as i32,
                 delay_us: self.delay_us,
+                max_fps: 0, // internal re-init config; only the player reads max_fps
             };
             self.reset(&cfg);
         }

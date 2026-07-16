@@ -410,6 +410,7 @@ impl Animation for Starfish {
                 width: self.winwidth,
                 height: self.winheight,
                 delay_us: self.delay_us,
+                max_fps: 0, // internal re-init config; only the player reads max_fps
                 cycles: self.cycles as i32,
                 ncolors: self.ncolors as i32,
                 count: 0,

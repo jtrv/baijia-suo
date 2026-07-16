@@ -103,6 +103,7 @@ impl Default for AnimationConfig {
                 size: 0,
                 ncolors: 64,
                 delay_us: 0,
+                max_fps: 0,
             },
         }
     }
@@ -168,6 +169,8 @@ struct FileConfig {
     animation: Option<Vec<String>>,
     /// Seconds each mode plays before cycling (with multiple modes).
     cycle: Option<u64>,
+    /// Frame-rate cap for animations; unset = uncapped (each mode's own clock).
+    max_fps: Option<u32>,
     daemonize: Option<bool>,
     #[serde(default)]
     indicator: IndicatorFile,
@@ -301,7 +304,11 @@ impl Config {
                 }),
                 // At least 1 s, so cycling can't switch every frame.
                 cycle: Duration::from_secs(args.cycle.or(file.cycle).unwrap_or(60).max(1)),
-                ..Default::default()
+                params: AnimConfig {
+                    // 0 = uncapped, the original per-mode clocks.
+                    max_fps: args.max_fps.or(file.max_fps).unwrap_or(0),
+                    ..AnimationConfig::default().params
+                },
             },
             indicator,
         })

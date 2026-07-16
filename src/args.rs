@@ -41,6 +41,11 @@ pub(crate) struct Args {
     #[arg(long, value_name = "SECONDS")]
     pub cycle: Option<u64>,
 
+    /// Cap animation frame rates (fps). Unset = uncapped, each mode's own
+    /// clock (some run at 100+ fps).
+    #[arg(long, value_name = "FPS")]
+    pub max_fps: Option<u32>,
+
     /// List available animation modes and exit
     #[arg(long)]
     pub list_animations: bool,

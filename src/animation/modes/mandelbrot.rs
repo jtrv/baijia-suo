@@ -416,6 +416,7 @@ impl Animation for Mandelbrot {
                 cycles: self.cycles,
                 size: 0,
                 ncolors: self.ncolors as i32,
+                max_fps: 0, // internal re-init config; only the player reads max_fps
                 delay_us: self.delay_us,
             };
             self.reset(&config);

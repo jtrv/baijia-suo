@@ -83,6 +83,10 @@
 # more than one mode enabled above). Default 60.
 # cycle = 60
 
+# Cap animation frame rates (some modes run at 100+ fps by default, which
+# wastes battery on a 60 Hz panel). Unset = uncapped, each mode's own clock.
+# max_fps = 60
+
 # Detach from the terminal after locking
 # daemonize = false
 
