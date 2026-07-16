@@ -97,6 +97,8 @@ pub struct Crystal {
     nx: i32,
     ny: i32,
     gamma: f32,
+    cos_g: f32,
+    sin_g: f32,
     atoms: Vec<CrystalAtom>,
     unit_cell: bool,
     grid_cell: bool,
@@ -120,17 +122,17 @@ impl Crystal {
         }
     }
 
-    fn trans_coor_back(xyp: &[Point], new_xyp: &mut [Point], num_points: usize, gamma: f32, offset_w: i32, offset_h: i32, winheight: i32, invert: i32, new_vertical: bool) {
+    fn trans_coor_back(xyp: &[Point], new_xyp: &mut [Point], num_points: usize, cos_g: f32, sin_g: f32, offset_w: i32, offset_h: i32, winheight: i32, invert: i32, new_vertical: bool) {
         for i in 0..=num_points {
             if new_vertical {
-                new_xyp[i].x = (xyp[i].y as f32 * ((gamma - 90.0) * PI_RAD).cos()) as i32 + offset_h;
-                new_xyp[i].y = xyp[i].x - (xyp[i].y as f32 * ((gamma - 90.0) * PI_RAD).sin()) as i32 + offset_w;
+                new_xyp[i].x = (xyp[i].y as f32 * cos_g) as i32 + offset_h;
+                new_xyp[i].y = xyp[i].x - (xyp[i].y as f32 * sin_g) as i32 + offset_w;
                 if invert != 0 {
                     new_xyp[i].x = winheight - new_xyp[i].x;
                 }
             } else {
-                new_xyp[i].y = (xyp[i].y as f32 * ((gamma - 90.0) * PI_RAD).cos()) as i32 + offset_h;
-                new_xyp[i].x = xyp[i].x - (xyp[i].y as f32 * ((gamma - 90.0) * PI_RAD).sin()) as i32 + offset_w;
+                new_xyp[i].y = (xyp[i].y as f32 * cos_g) as i32 + offset_h;
+                new_xyp[i].x = xyp[i].x - (xyp[i].y as f32 * sin_g) as i32 + offset_w;
                 if invert != 0 {
                     new_xyp[i].y = winheight - new_xyp[i].y;
                 }
@@ -195,9 +197,10 @@ impl Crystal {
         
         let start_y = min_y.max(0);
         let end_y = max_y.min(height as i32 - 1);
-        
+
+        let mut intersections = Vec::with_capacity(8);
         for y in start_y..=end_y {
-            let mut intersections = Vec::new();
+            intersections.clear();
             for i in 0..pts.len() {
                 let p1 = pts[i];
                 let p2 = pts[(i + 1) % pts.len()];
@@ -295,7 +298,7 @@ impl Crystal {
                         xy_1[k].x = xy[k].x + l * self.a;
                         xy_1[k].y = xy[k].y + m * self.b;
                     }
-                    Self::trans_coor_back(&xy_1, &mut new_xy, atom0.num_point, self.gamma, self.offset_w, self.offset_h, self.win_height, self.invert, self.vertical);
+                    Self::trans_coor_back(&xy_1, &mut new_xy, atom0.num_point, self.cos_g, self.sin_g, self.offset_w, self.offset_h, self.win_height, self.invert, self.vertical);
                     self.fill_polygon(buffer, width, height, &new_xy[..atom0.num_point], color, true);
                 }
             }
@@ -311,7 +314,7 @@ impl Crystal {
                             xy_1[k].x = xy[k].x + l * self.a;
                             xy_1[k].y = xy[k].y + m * self.b;
                         }
-                        Self::trans_coor_back(&xy_1, &mut new_xy, atom0.num_point, self.gamma, self.offset_w, self.offset_h, self.win_height, self.invert, self.vertical);
+                        Self::trans_coor_back(&xy_1, &mut new_xy, atom0.num_point, self.cos_g, self.sin_g, self.offset_w, self.offset_h, self.win_height, self.invert, self.vertical);
                         self.fill_polygon(buffer, width, height, &new_xy[..atom0.num_point], color, true);
                     }
                 }
@@ -338,7 +341,7 @@ impl Crystal {
                             xy_1[k].x = xy[k].x + l * self.a;
                             xy_1[k].y = xy[k].y + m * self.b;
                         }
-                        Self::trans_coor_back(&xy_1, &mut new_xy, atom0.num_point, self.gamma, self.offset_w, self.offset_h, self.win_height, self.invert, self.vertical);
+                        Self::trans_coor_back(&xy_1, &mut new_xy, atom0.num_point, self.cos_g, self.sin_g, self.offset_w, self.offset_h, self.win_height, self.invert, self.vertical);
                         self.fill_polygon(buffer, width, height, &new_xy[..atom0.num_point], color, true);
                     }
                 }
@@ -355,7 +358,7 @@ impl Crystal {
                                 xy_1[k].x = xy1[k].x + l * self.a;
                                 xy_1[k].y = xy1[k].y + m * self.b;
                             }
-                            Self::trans_coor_back(&xy_1, &mut new_xy, atom0.num_point, self.gamma, self.offset_w, self.offset_h, self.win_height, self.invert, self.vertical);
+                            Self::trans_coor_back(&xy_1, &mut new_xy, atom0.num_point, self.cos_g, self.sin_g, self.offset_w, self.offset_h, self.win_height, self.invert, self.vertical);
                             self.fill_polygon(buffer, width, height, &new_xy[..atom0.num_point], color, true);
                         }
                     }
@@ -366,9 +369,11 @@ impl Crystal {
 
     fn draw_grid(&self, buffer: &mut [u8], width: u32, height: u32) {
         if !self.unit_cell { return; }
-        
+
         let color = Color::new(255, 255, 255, 255); // White
-        
+        let cos_g = self.cos_g;
+        let sin_g = self.sin_g;
+
         if self.grid_cell {
             let mut y_coor1: i32;
             let mut y_coor2: i32;
@@ -380,72 +385,72 @@ impl Crystal {
                 y_coor2 = self.offset_h;
             }
             self.draw_line_vertical_aware(buffer, width, height, self.offset_w, y_coor1, self.offset_w + self.nx * self.a, y_coor2, color);
-            
+
             if self.invert != 0 {
                 y_coor1 = self.win_height - self.offset_h;
-                y_coor2 = self.win_height - (self.ny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 - self.offset_h;
+                y_coor2 = self.win_height - (self.ny as f32 * self.b as f32 * cos_g) as i32 - self.offset_h;
             } else {
                 y_coor1 = self.offset_h;
-                y_coor2 = (self.ny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 + self.offset_h;
+                y_coor2 = (self.ny as f32 * self.b as f32 * cos_g) as i32 + self.offset_h;
             }
-            self.draw_line_vertical_aware(buffer, width, height, self.offset_w, y_coor1, (self.offset_w as f32 - self.ny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, y_coor2, color);
-            
+            self.draw_line_vertical_aware(buffer, width, height, self.offset_w, y_coor1, (self.offset_w as f32 - self.ny as f32 * self.b as f32 * sin_g) as i32, y_coor2, color);
+
             let inx = self.nx;
             for iny in 1..=self.ny {
                 let yc1: i32;
                 let yc2: i32;
                 if self.invert != 0 {
-                    yc1 = self.win_height - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 - self.offset_h;
-                    yc2 = self.win_height - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 - self.offset_h;
+                    yc1 = self.win_height - (iny as f32 * self.b as f32 * cos_g) as i32 - self.offset_h;
+                    yc2 = self.win_height - (iny as f32 * self.b as f32 * cos_g) as i32 - self.offset_h;
                 } else {
-                    yc1 = (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 + self.offset_h;
-                    yc2 = (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 + self.offset_h;
+                    yc1 = (iny as f32 * self.b as f32 * cos_g) as i32 + self.offset_h;
+                    yc2 = (iny as f32 * self.b as f32 * cos_g) as i32 + self.offset_h;
                 }
-                self.draw_line_vertical_aware(buffer, width, height, 
-                    (self.offset_w as f32 + inx as f32 * self.a as f32 - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin())) as i32, yc1,
-                    (self.offset_w as f32 - iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, yc2, color);
+                self.draw_line_vertical_aware(buffer, width, height,
+                    (self.offset_w as f32 + inx as f32 * self.a as f32 - (iny as f32 * self.b as f32 * sin_g)) as i32, yc1,
+                    (self.offset_w as f32 - iny as f32 * self.b as f32 * sin_g) as i32, yc2, color);
             }
-            
+
             let iny = self.ny;
             for inx in 1..=self.nx {
                 let yc1: i32;
                 let yc2: i32;
                 if self.invert != 0 {
-                    yc1 = self.win_height - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 - self.offset_h;
+                    yc1 = self.win_height - (iny as f32 * self.b as f32 * cos_g) as i32 - self.offset_h;
                     yc2 = self.win_height - self.offset_h;
                 } else {
-                    yc1 = (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 + self.offset_h;
+                    yc1 = (iny as f32 * self.b as f32 * cos_g) as i32 + self.offset_h;
                     yc2 = self.offset_h;
                 }
                 self.draw_line_vertical_aware(buffer, width, height,
-                    (self.offset_w as f32 + inx as f32 * self.a as f32 - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin())) as i32, yc1,
+                    (self.offset_w as f32 + inx as f32 * self.a as f32 - (iny as f32 * self.b as f32 * sin_g)) as i32, yc1,
                     self.offset_w + inx * self.a, yc2, color);
             }
         } else {
             let inx = self.target_cell_x;
             let iny = self.target_cell_y;
-            
+
             let yc1: i32;
             let yc2: i32;
             if self.invert != 0 {
-                yc1 = self.win_height - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 - self.offset_h;
-                yc2 = self.win_height - ((iny + 1) as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 - self.offset_h;
+                yc1 = self.win_height - (iny as f32 * self.b as f32 * cos_g) as i32 - self.offset_h;
+                yc2 = self.win_height - ((iny + 1) as f32 * self.b as f32 * cos_g) as i32 - self.offset_h;
             } else {
-                yc1 = (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 + self.offset_h;
-                yc2 = ((iny + 1) as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).cos()) as i32 + self.offset_h;
+                yc1 = (iny as f32 * self.b as f32 * cos_g) as i32 + self.offset_h;
+                yc2 = ((iny + 1) as f32 * self.b as f32 * cos_g) as i32 + self.offset_h;
             }
             self.draw_line_vertical_aware(buffer, width, height,
-                self.offset_w + inx * self.a - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, yc1,
-                self.offset_w + (inx + 1) * self.a - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, yc1, color);
+                self.offset_w + inx * self.a - (iny as f32 * self.b as f32 * sin_g) as i32, yc1,
+                self.offset_w + (inx + 1) * self.a - (iny as f32 * self.b as f32 * sin_g) as i32, yc1, color);
             self.draw_line_vertical_aware(buffer, width, height,
-                self.offset_w + inx * self.a - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, yc1,
-                self.offset_w + inx * self.a - ((iny + 1) as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, yc2, color);
+                self.offset_w + inx * self.a - (iny as f32 * self.b as f32 * sin_g) as i32, yc1,
+                self.offset_w + inx * self.a - ((iny + 1) as f32 * self.b as f32 * sin_g) as i32, yc2, color);
             self.draw_line_vertical_aware(buffer, width, height,
-                self.offset_w + (inx + 1) * self.a - (iny as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, yc1,
-                self.offset_w + (inx + 1) * self.a - ((iny + 1) as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, yc2, color);
+                self.offset_w + (inx + 1) * self.a - (iny as f32 * self.b as f32 * sin_g) as i32, yc1,
+                self.offset_w + (inx + 1) * self.a - ((iny + 1) as f32 * self.b as f32 * sin_g) as i32, yc2, color);
             self.draw_line_vertical_aware(buffer, width, height,
-                self.offset_w + inx * self.a - ((iny + 1) as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, yc2,
-                self.offset_w + (inx + 1) * self.a - ((iny + 1) as f32 * self.b as f32 * ((self.gamma - 90.0) * PI_RAD).sin()) as i32, yc2, color);
+                self.offset_w + inx * self.a - ((iny + 1) as f32 * self.b as f32 * sin_g) as i32, yc2,
+                self.offset_w + (inx + 1) * self.a - ((iny + 1) as f32 * self.b as f32 * sin_g) as i32, yc2, color);
         }
     }
 }
@@ -467,6 +472,8 @@ impl Animation for Crystal {
             nx: 0,
             ny: 0,
             gamma: 0.0,
+            cos_g: 0.0,
+            sin_g: 0.0,
             atoms: Vec::new(),
             unit_cell: false,
             grid_cell: false,
@@ -702,7 +709,10 @@ impl Animation for Crystal {
                 }
             }
         }
-        
+
+        self.cos_g = ((self.gamma - 90.0) * PI_RAD).cos();
+        self.sin_g = ((self.gamma - 90.0) * PI_RAD).sin();
+
         let mut size_atom = ((self.a as f32 / 40.0) as i32 + 1).min((self.b as f32 / 40.0) as i32 + 1);
         let mut m_size = config.size;
         if m_size == 0 { m_size = -15; }

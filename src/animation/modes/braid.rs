@@ -270,15 +270,23 @@ impl Animation for Braid {
             
             // Replicate floating point loop correctly
             let mut t = 0.0;
+            // applywordbackto(k, i) depends only on (k, i), not t; precompute per-strand
+            // color components once per i instead of every t sub-step. Only 0..nstrands
+            // is ever queried below (braidword values are drawn from 1..nstrands, so the
+            // crossing branch's `s + 1` index tops out at nstrands - 1).
+            let mut comp_back = [0.0f32; MAXSTRANDS];
+            for k in 0..self.nstrands {
+                comp_back[k] = self.components[self.applywordbackto(k as i32, i) as usize] as f32;
+            }
             while t < theta {
                 for s in 0..self.nstrands {
                     if self.braidword[i].unsigned_abs() as usize == s {
                         continue;
                     }
-                    
+
                     if (self.braidword[i].abs() - 1) as usize == s {
                         // Crossing
-                        let mut color_use = color + SPINRATE * self.components[self.applywordbackto(s as i32, i) as usize] as f32
+                        let mut color_use = color + SPINRATE * comp_back[s]
                             + (psi + t) / (2.0 * PI) * self.ncolors as f32;
                         
                         while color_use >= self.ncolors as f32 {
@@ -307,7 +315,7 @@ impl Animation for Braid {
                             draw_line(buffer, width, height, x_1 as i32, y_1 as i32, x_2 as i32, y_2 as i32, c_rgb);
                         }
                         
-                        let mut color_use2 = color + SPINRATE * self.components[self.applywordbackto((s + 1) as i32, i) as usize] as f32
+                        let mut color_use2 = color + SPINRATE * comp_back[s + 1]
                             + (psi + t) / (2.0 * PI) * self.ncolors as f32;
                             
                         while color_use2 >= self.ncolors as f32 {
@@ -335,7 +343,7 @@ impl Animation for Braid {
 
                     } else {
                         // No crossing
-                        let mut color_use = color + SPINRATE * self.components[self.applywordbackto(s as i32, i) as usize] as f32
+                        let mut color_use = color + SPINRATE * comp_back[s]
                             + (psi + t) / (2.0 * PI) * self.ncolors as f32;
                         while color_use >= self.ncolors as f32 {
                             color_use -= self.ncolors as f32;
