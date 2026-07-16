@@ -75,6 +75,9 @@ impl AnimationPlayer {
             "qix" => 30_000,
             "worm" => 17_000,
             "blot" => 2_000_000,
+            // petri.c: "*delay: 10000"; without this entry the generic
+            // 16_666 fallback ran colony growth 1.67x slower than upstream.
+            "petri" => 10_000,
             "pyro" => 15_000,
             "rain" => 35_000,
             "bubble" => 100_000,
@@ -90,9 +93,13 @@ impl AnimationPlayer {
         self.next_wake
     }
 
-    /// Advance the clock to `now`: catch up on ticks (capped to 10, to
-    /// avoid a spiral of death if the event loop was heavily delayed),
-    /// render into the internal buffer, and recompute `next_wake`.
+    /// Advance the clock to `now`: run at most one tick, render into the
+    /// internal buffer, and recompute `next_wake`.
+    ///
+    /// One tick per wakeup matches the original xscreensaver/xlockmore
+    /// loops: when a frame overruns its delay budget the animation slows
+    /// down smoothly instead of bursting catch-up ticks, which reads as
+    /// stop-and-go motion (seen on xrayswarm).
     ///
     /// Safe to call before `ensure_sized` (e.g. the very first draw, before
     /// any output has reported its size): the clock still advances and
@@ -106,20 +113,26 @@ impl AnimationPlayer {
         }
         let delay_us = delay_us.max(self.min_delay_us);
 
-        let tick_count = match self.last_tick {
+        let ticked = match self.last_tick {
             Some(last) => {
                 let elapsed = now.duration_since(last).as_micros() as u64;
                 if elapsed >= delay_us {
-                    let n = ((elapsed / delay_us) as u32).min(10);
-                    self.last_tick = Some(last + Duration::from_micros(n as u64 * delay_us));
-                    n
+                    // Keep the absolute cadence when roughly on time, but
+                    // re-anchor to `now` once we're a full period behind so
+                    // a backlog never forces back-to-back ticks.
+                    self.last_tick = Some(if elapsed >= 2 * delay_us {
+                        now
+                    } else {
+                        last + Duration::from_micros(delay_us)
+                    });
+                    true
                 } else {
-                    0
+                    false
                 }
             }
             None => {
                 self.last_tick = Some(now);
-                1
+                true
             }
         };
 
@@ -130,23 +143,21 @@ impl AnimationPlayer {
         };
 
         if self.animation.clears_each_frame() {
-            for _ in 0..tick_count {
+            if ticked {
                 self.animation.tick();
             }
             // Skip the clear + render when nothing ticked and the buffer
             // already holds the current frame: keystroke/indicator redraws
             // call advance() far more often than most mode clocks fire, and
             // re-rendering an identical frame is pure waste.
-            if tick_count > 0 || self.dirty {
+            if ticked || self.dirty {
                 primitives::clear_buffer(buf, self.background);
                 self.animation.render(buf, w, h);
                 self.dirty = false;
             }
-        } else {
-            for _ in 0..tick_count {
-                self.animation.tick();
-                self.animation.render(buf, w, h);
-            }
+        } else if ticked {
+            self.animation.tick();
+            self.animation.render(buf, w, h);
         }
     }
 
