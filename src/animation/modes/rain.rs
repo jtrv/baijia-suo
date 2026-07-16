@@ -340,10 +340,10 @@ impl Animation for Rain {
         // cross the screen proportionally slower. Scale *time* rather than
         // the offsets — segment geometry stays bit-for-bit upstream, and the
         // whole scene (fall, splash, respawn) plays uniformly faster.
-        // Reference height tuned to 560 (a straight 480 felt slightly
+        // Reference height tuned by eye to 640 (a straight era 480 felt
         // fast); never faster than that, never slower than upstream.
         let base_us = if config.delay_us == 0 { 35_000 } else { config.delay_us };
-        self.delay_us = base_us * 560 / (config.height.max(560) as u64);
+        self.delay_us = base_us * 640 / (config.height.max(640) as u64);
 
         // xlockmore: 50/50 left-to-right vs right-to-left.
         self.direction = if rng.random_range(0..2) == 1 { -1 } else { 1 };
