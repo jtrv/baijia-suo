@@ -11,7 +11,7 @@ Status: `todo` | `in-progress` | `done` | `wontfix (reason)`.
 
 ## From the sweep
 
-### 1. petri: incremental render instead of full grid rescan — `todo`
+### 1. petri: incremental render instead of full grid rescan — `done`
 `src/animation/modes/petri.rs:270-305`, `clears_each_frame() == true`.
 `tick()` already maintains a doubly-linked active-cell list (`head`/`next`/
 `prev`) of exactly the cells changing, but `render()` ignores it and rescans
@@ -22,7 +22,7 @@ though most of the colony is settled and unchanging.
 `lissie.rs`/`maze.rs` already use.
 Impact: high (scales with screen area / cell_size²). Risk: low. Effort: medium.
 
-### 2. polyominoes: incremental render instead of full board rescan — `todo`
+### 2. polyominoes: incremental render instead of full board rescan — `done` (bitmap style; plain style kept full redraw, see commit)
 `src/animation/modes/polyominoes.rs:1328-1447`, `clears_each_frame() == true`.
 `tick()` attaches at most one piece per call, but render walks the whole
 `bw × bh` board (with 8-neighbor lookups per cell in the bitmap path) after a
@@ -31,7 +31,7 @@ full clear.
 detection depends on neighbors), drop the full clear.
 Impact: high for small box_size. Risk: low. Effort: medium.
 
-### 3. vermiculate: persistent BGRA canvas — `todo`
+### 3. vermiculate: persistent BGRA canvas — `done`
 `src/animation/modes/vermiculate.rs:1166-1188`.
 `render()` scans the entire `width × height` pixel-index buffer per frame
 (read + branch + palette lookup + `put_pixel` per pixel) though a tick writes
@@ -42,7 +42,7 @@ only a handful of pixels via `sp()`.
 sites (autopal / `clearscreen()` / `reset_p`) must rebuild the canvas.
 Impact: high. Risk: low. Effort: medium.
 
-### 4. binaryring: store BGRA instead of packed u32 — `todo`
+### 4. binaryring: store BGRA instead of packed u32 — `done`
 `src/animation/modes/binaryring.rs:342-357`.
 Internal buffer is packed `0x00RRGGBB` u32; `render()` converts the full
 screen to BGRA every call. Sibling `binaryhorizon.rs` (same author/algorithm)
@@ -64,7 +64,7 @@ Impact: medium (compositor/iGPU bandwidth, battery). **Risk: medium — stale
 prev-rect bookkeeping leaves ghosting.** Effort: medium (rect plumbing from
 `render_to_surface` up to `draw()`).
 
-### 6. moire: blit only the modified row range — `todo`
+### 6. moire: blit only the modified row range — `done`
 `src/animation/modes/moire.rs:183-189`.
 `tick()` touches only `CHUNK_SIZE = 20` rows, but `render()` copies the whole
 buffer every frame.
@@ -113,7 +113,7 @@ so, same-sized outputs could share a single rendered frame and blit twice.
 Impact: high for multi-monitor. Risk: low. Effort: medium (check current
 behavior first — may already be shared).
 
-### 12. Adaptive cap on battery — `todo`
+### 12. Adaptive cap on battery — `done` (as low_battery_percent power saver: animations suspend below threshold)
 Read `/sys/class/power_supply/*/status` at start (and on a slow poll);
 when discharging, apply a default `max_fps` (e.g. 30-60) unless the user set
 one explicitly. Pure policy on top of the existing knob. Impact: medium.
