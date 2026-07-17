@@ -63,21 +63,28 @@ fn next_color(current: u32, rng: &mut impl Rng) -> u32 {
     rgb2point(clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255))
 }
 
-// Blend a point into the buffer with coverage `a`.
-fn draw_point(buffer: &mut [u32], width: i32, x: i32, y: i32, myc: u32, a: f32) {
-    let idx = (y * width + x) as usize;
-    if idx >= buffer.len() {
+// Blend a point into the BGRA canvas with coverage `a`. Same channel math
+// as the old packed-u32 version, on bytes directly (alpha untouched).
+fn draw_point(buffer: &mut [u8], width: i32, x: i32, y: i32, myc: u32, a: f32) {
+    let idx = ((y * width + x) as usize) * 4;
+    if idx + 3 >= buffer.len() {
         return;
     }
-    let (or_, og, ob) = point2rgb(buffer[idx]);
+    let (or_, og, ob) = (
+        buffer[idx + 2] as i32,
+        buffer[idx + 1] as i32,
+        buffer[idx] as i32,
+    );
     let (r, g, b) = point2rgb(myc);
     let nr = (or_ as f32 + (r - or_) as f32 * a) as i32;
     let ng = (og as f32 + (g - og) as f32 * a) as i32;
     let nb = (ob as f32 + (b - ob) as f32 * a) as i32;
-    buffer[idx] = rgb2point(nr, ng, nb);
+    buffer[idx] = nb as u8;
+    buffer[idx + 1] = ng as u8;
+    buffer[idx + 2] = nr as u8;
 }
 
-fn dla_plot(buffer: &mut [u32], width: i32, height: i32, x: i32, y: i32, col: u32, br: f32) {
+fn dla_plot(buffer: &mut [u8], width: i32, height: i32, x: i32, y: i32, col: u32, br: f32) {
     if x >= 0 && x < width && y >= 0 && y < height {
         let br = if br > 1.0 { 1.0 } else { br };
         draw_point(buffer, width, x, y, col, br);
@@ -98,7 +105,7 @@ fn rfpart(x: f32) -> f32 {
 
 #[allow(clippy::too_many_arguments)]
 fn draw_line_antialias(
-    buffer: &mut [u32],
+    buffer: &mut [u8],
     width: i32,
     height: i32,
     mut x1: i32,
@@ -207,7 +214,9 @@ pub struct BinaryRing {
 
     width: i32,
     height: i32,
-    buffer: Vec<u32>,
+    /// Persistent canvas in BGRA byte order (alpha pre-set at reset), so
+    /// render() is a plain memcpy instead of a per-pixel u32 conversion.
+    buffer: Vec<u8>,
     colors: [u32; 2],
     color: bool,
 }
@@ -340,19 +349,12 @@ impl Animation for BinaryRing {
     }
 
     fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
-        let w = (self.width as u32).min(width) as usize;
+        let w = (self.width as u32).min(width) as usize * 4;
         let h = (self.height as u32).min(height) as usize;
         for y in 0..h {
-            let src_row = y * self.width as usize;
-            let dst_row = y * width as usize;
-            for x in 0..w {
-                let c = self.buffer[src_row + x];
-                let idx = (dst_row + x) * 4;
-                buffer[idx] = (c & 0xff) as u8; // B
-                buffer[idx + 1] = ((c >> 8) & 0xff) as u8; // G
-                buffer[idx + 2] = ((c >> 16) & 0xff) as u8; // R
-                buffer[idx + 3] = 0xff;
-            }
+            let src = y * self.width as usize * 4;
+            let dst = y * width as usize * 4;
+            buffer[dst..dst + w].copy_from_slice(&self.buffer[src..src + w]);
         }
     }
 
@@ -389,7 +391,12 @@ impl Animation for BinaryRing {
             .collect();
         self.create_particles(&mut rng);
 
-        self.buffer = vec![0u32; (self.width * self.height) as usize];
+        self.buffer = vec![0u8; (self.width * self.height) as usize * 4];
+        // Opaque black: alpha bytes are set once here and never touched by
+        // the blend path.
+        for px in self.buffer.chunks_exact_mut(4) {
+            px[3] = 0xff;
+        }
     }
 
     fn clears_each_frame(&self) -> bool {
