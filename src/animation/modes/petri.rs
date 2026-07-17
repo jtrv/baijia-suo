@@ -59,6 +59,15 @@ pub struct Petri {
     delay_us: u64,
     colors: Vec<Color>,
     bright_colors: Vec<Color>,
+
+    /// Cells whose displayed state changed this tick; render() repaints
+    /// only these. Cleared at the top of tick() — the player renders once
+    /// per tick for non-clearing modes, so each list is consumed exactly
+    /// once.
+    dirty: Vec<usize>,
+    /// One full-grid repaint is due (fresh buffer after reset/resize, or a
+    /// colony wipe from setup_arr). Consumed by render(&self), hence Cell.
+    full_repaint: std::cell::Cell<bool>,
 }
 
 impl Petri {
@@ -86,6 +95,8 @@ impl Petri {
         self.arr[next].prev = prev;
         self.arr[idx].prev = usize::MAX;
         self.arr[idx].speed = 0.0;
+        // speed 0 changes the displayed shade (bright -> dim, white -> black)
+        self.dirty.push(idx);
     }
 
     fn randblip(&mut self, doit: bool) -> bool {
@@ -154,8 +165,34 @@ impl Petri {
         self.arr[self.tail].next = self.tail;
         self.arr[self.tail].prev = self.head;
 
+        // The whole dish just went blank.
+        self.full_repaint.set(true);
+
         let mut rng = rand::rng();
         self.blastcount = rng.random_range(self.minlifespan..=self.maxlifespan);
+    }
+
+    fn draw_cell(&self, buffer: &mut [u8], width: u32, height: u32, idx: usize) {
+        let black = Color::new(255, 0, 0, 0);
+        let white = Color::new(255, 255, 255, 255);
+        let cell = &self.arr[idx];
+        let is_active = cell.speed > 0.0;
+        let color = if cell.col == 0 {
+            if is_active { white } else { black }
+        } else {
+            let ci = (cell.col % self.count) as usize;
+            if is_active { self.bright_colors[ci] } else { self.colors[ci] }
+        };
+
+        let x = idx % self.arr_width;
+        let y = idx / self.arr_width;
+        let px = (x * self.x_size + self.x_offset) as i32;
+        let py = (y * self.y_size + self.y_offset) as i32;
+        for i in 0..self.x_size as i32 {
+            for j in 0..self.y_size as i32 {
+                put_pixel(buffer, width, height, px + i, py + j, color);
+            }
+        }
     }
 }
 
@@ -189,12 +226,15 @@ impl Animation for Petri {
             delay_us: config.delay_us,
             colors: Vec::new(),
             bright_colors: Vec::new(),
+            dirty: Vec::new(),
+            full_repaint: std::cell::Cell::new(true),
         };
         p.reset(config);
         p
     }
 
     fn tick(&mut self) {
+        self.dirty.clear();
         let mut current = self.arr[self.head].next;
         let mut to_kill = Vec::new();
 
@@ -262,44 +302,23 @@ impl Animation for Petri {
                 self.arr[current].speed = self.arr[current].nextspeed;
                 self.arr[current].growth = 0.0;
                 self.arr[current].col = self.arr[current].nextcol;
+                self.dirty.push(current);
             }
             current = self.arr[current].next;
         }
     }
 
     fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
-        let black = Color::new(255, 0, 0, 0);
-        let white = Color::new(255, 255, 255, 255);
-
-        for y in 0..self.arr_height {
-            let row = y * self.arr_width;
-            for x in 0..self.arr_width {
-                let cell = &self.arr[row + x];
-                let c = cell.col;
-                
-                let is_active = cell.speed > 0.0;
-                
-                let color = if c == 0 {
-                    if is_active { white } else { black }
-                } else {
-                    let idx = (c % self.count) as usize;
-                    if is_active {
-                        self.bright_colors[idx]
-                    } else {
-                        self.colors[idx]
-                    }
-                };
-
-                if color != black {
-                    let px = (x * self.x_size + self.x_offset) as i32;
-                    let py = (y * self.y_size + self.y_offset) as i32;
-
-                    for i in 0..self.x_size as i32 {
-                        for j in 0..self.y_size as i32 {
-                            put_pixel(buffer, width, height, px + i, py + j, color);
-                        }
-                    }
-                }
+        // Note: unlike the old full-rescan version, dead cells are painted
+        // black rather than left to the player's background fill —
+        // upstream's dish is black, and incremental repaints need to erase.
+        if self.full_repaint.replace(false) {
+            for idx in 0..self.arr_width * self.arr_height {
+                self.draw_cell(buffer, width, height, idx);
+            }
+        } else {
+            for &idx in &self.dirty {
+                self.draw_cell(buffer, width, height, idx);
             }
         }
     }
@@ -397,7 +416,7 @@ impl Animation for Petri {
     }
 
     fn clears_each_frame(&self) -> bool {
-        true
+        false
     }
 
     fn frame_delay_us(&self) -> u64 {
