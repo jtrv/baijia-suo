@@ -142,21 +142,26 @@ impl Lissie {
             yi_lo
         };
 
+        // xlockmore: rx = INTRAND(w/4, MIN(w - xi, xi)) - 2*ri — the 2*ri
+        // shifts the PICKED value, not just the upper bound. Subtracting it
+        // only from the bound (an earlier port bug) forced rx >= w/4, which
+        // on wide screens stretched every worm into flat, screen-spanning
+        // ellipses.
         let rx_lo = w / 4;
-        let rx_hi = (w - lissie.xi).min(lissie.xi) - 2 * lissie.ri;
+        let rx_hi = (w - lissie.xi).min(lissie.xi);
         lissie.rx = if rx_lo < rx_hi {
             rng.random_range(rx_lo..=rx_hi)
         } else {
-            rx_lo.max(0)
-        };
+            rx_lo
+        } - 2 * lissie.ri;
 
         let ry_lo = h / 4;
-        let ry_hi = (h - lissie.yi).min(lissie.yi) - 2 * lissie.ri;
+        let ry_hi = (h - lissie.yi).min(lissie.yi);
         lissie.ry = if ry_lo < ry_hi {
             rng.random_range(ry_lo..=ry_hi)
         } else {
-            ry_lo.max(0)
-        };
+            ry_lo
+        } - 2 * lissie.ri;
 
         lissie.len = rng.random_range(MINLISSIELEN..MAXLISSIELEN);
         lissie.pos = 0;

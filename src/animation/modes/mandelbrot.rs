@@ -345,8 +345,13 @@ impl Animation for Mandelbrot {
 
         self.ops.clear();
 
-        if (!self.backwards && self.column >= 3 * self.screen_width as i32)
-            || (self.backwards && self.column < -2 * self.screen_width as i32)
+        // Deviation from xlockmore: upstream idles for 2*width extra column
+        // ticks after finishing an image ("wait around and show what we've
+        // done") — 32s at era sizes and unchanged here since our tick rate
+        // scales with width. Cap the linger at a fixed ~5s instead.
+        let pause_cols = (5_000_000 / self.delay_us.max(1)) as i32;
+        if (!self.backwards && self.column >= self.screen_width as i32 + pause_cols)
+            || (self.backwards && self.column < -pause_cols)
         {
             self.backwards = rng.random::<bool>();
             if self.backwards {

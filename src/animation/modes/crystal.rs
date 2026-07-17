@@ -732,8 +732,26 @@ impl Animation for Crystal {
         
         let ncolors = if config.ncolors <= 0 { 100 } else { config.ncolors.max(2) };
         self.colors.clear();
-        for i in 0..ncolors {
-            self.colors.push(Color::from_hsl(i as f32 / ncolors as f32, 1.0, 0.5));
+        // crystal.c picks a colormap style per run: 1 in 10 make_random_colormap
+        // (independent random hues), else half make_uniform_colormap (evenly
+        // spaced hue wheel), else make_smooth_colormap (ramp between random
+        // anchors). A fixed rainbow ramp made every run look alike.
+        if rng.random_range(0..10) == 0 {
+            for _ in 0..ncolors {
+                self.colors.push(Color::from_hsl(rng.random::<f32>(), 1.0, 0.5));
+            }
+        } else if rng.random::<bool>() {
+            for i in 0..ncolors {
+                self.colors.push(Color::from_hsl(i as f32 / ncolors as f32, 1.0, 0.5));
+            }
+        } else {
+            let h1 = rng.random::<f32>();
+            let h2 = rng.random::<f32>();
+            for i in 0..ncolors {
+                let t = i as f32 / ncolors as f32;
+                let h = (h1 + (h2 - h1) * t).rem_euclid(1.0);
+                self.colors.push(Color::from_hsl(h, 1.0, 0.5));
+            }
         }
         self.color_offset = 0;
         self.cycle_p = rng.random_range(0..8) != 0;

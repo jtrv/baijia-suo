@@ -80,6 +80,11 @@ impl Blot {
 
         // Fudge the size so it takes up the whole screen
         self.size *= ((self.width / 32) + 1) as i32 * ((self.height / 32) + 1) as i32;
+        // Deviation from xlockmore: with the edge reflection below keeping
+        // the whole walk visible (upstream lost off-screen excursions), the
+        // full fudged length reads as a longer, denser wander. Trim to
+        // compensate; tune the factor here if blots feel too thin/dense.
+        self.size = self.size * 3 / 4;
 
         self.count = 0;
         self.clear_frames.set(2);
