@@ -121,59 +121,65 @@ impl AnimationPlayer {
     /// `next_wake` still gets armed, but there's no buffer yet to render
     /// into, so the render step is skipped until a size is known.
     pub fn advance(&mut self, now: Instant) {
-        /// Fastest wakeup cadence worth scheduling (100 fps — what the
-        /// upstream hacks' 10ms clocks assume). Only faster clocks
-        /// (discrete's 1ms) batch ticks per frame. Not 60 fps: strobe-like
-        /// modes (lightning) toggle visibility per 10ms tick, and batching
-        /// 2 ticks per frame deterministically hides parts of the flicker
-        /// that upstream's per-tick rendering shows.
-        const MIN_FRAME_US: u64 = 10_000;
+        /// A ~60 Hz refresh period. Mode clocks faster than this can't have
+        /// every state presented anyway; clocks at or above it can.
+        const REFRESH_US: u64 = 16_666;
 
         let delay_us = self.animation.frame_delay_us();
         if delay_us == 0 {
             self.next_wake = None;
             return;
         }
+        // The max_fps cap stretches the wakeup cadence, never the tick
+        // arithmetic: capped fast modes catch up within each longer frame,
+        // so rendering slows but simulation speed doesn't.
+        let sched_us = delay_us.max(self.min_delay_us);
 
-        let floor_us = self.min_delay_us.max(MIN_FRAME_US);
-        let (ticks_per_frame, frame_us) = if delay_us < floor_us {
-            let n = floor_us.div_ceil(delay_us);
-            (n, delay_us * n)
-        } else {
-            (1, delay_us)
-        };
+        // Two tick policies:
+        //
+        // - Sub-refresh clocks (upstream 10ms/1ms delays) run bounded
+        //   elapsed-driven catch-up: the simulation holds its upstream rate
+        //   and presentation samples it, with the natural phase drift a real
+        //   display sampling upstream's 100fps draws would show. Capped so a
+        //   long gap (display off) re-anchors instead of bursting.
+        // - At-or-above-refresh clocks tick at most once per wakeup: every
+        //   state is presentable, and when a frame overruns its budget the
+        //   animation slows down smoothly instead of double-ticking, which
+        //   reads as stop-and-go motion (seen on xrayswarm).
+        let max_ticks: u64 = if delay_us < REFRESH_US { 10 } else { 1 };
 
-        let ticked = match self.last_tick {
+        let ticks = match self.last_tick {
             Some(last) => {
                 let elapsed = now.duration_since(last).as_micros() as u64;
-                if elapsed >= frame_us {
+                if elapsed >= delay_us {
+                    let n = (elapsed / delay_us).min(max_ticks);
                     // Keep the absolute cadence when roughly on time, but
-                    // re-anchor to `now` once a full frame behind so a
-                    // backlog never forces back-to-back frames.
-                    self.last_tick = Some(if elapsed >= 2 * frame_us {
+                    // re-anchor to `now` once we're beyond what we're
+                    // willing to catch up, so a backlog never forces
+                    // back-to-back frames.
+                    self.last_tick = Some(if elapsed >= (max_ticks + 1) * delay_us {
                         now
                     } else {
-                        last + Duration::from_micros(frame_us)
+                        last + Duration::from_micros(n * delay_us)
                     });
-                    true
+                    n
                 } else {
-                    false
+                    0
                 }
             }
             None => {
                 self.last_tick = Some(now);
-                true
+                1
             }
         };
+        let ticked = ticks > 0;
 
-        self.next_wake = Some(self.last_tick.unwrap() + Duration::from_micros(frame_us));
+        self.next_wake = Some(self.last_tick.unwrap() + Duration::from_micros(sched_us));
 
         if let (Some((w, h)), Some(buf)) = (self.surface_size, self.buffer.as_mut()) {
             if self.animation.clears_each_frame() {
-                if ticked {
-                    for _ in 0..ticks_per_frame {
-                        self.animation.tick();
-                    }
+                for _ in 0..ticks {
+                    self.animation.tick();
                 }
                 // Skip the clear + render when nothing ticked and the buffer
                 // already holds the current frame: keystroke/indicator
@@ -184,10 +190,10 @@ impl AnimationPlayer {
                     self.animation.render(buf, w, h);
                     self.dirty = false;
                 }
-            } else if ticked {
+            } else {
                 // tick+render pairs: incremental modes queue draw ops per
                 // tick and consume them in render, so the pairing must hold.
-                for _ in 0..ticks_per_frame {
+                for _ in 0..ticks {
                     self.animation.tick();
                     self.animation.render(buf, w, h);
                 }
@@ -202,14 +208,8 @@ impl AnimationPlayer {
         if ticked {
             let next_us = self.animation.frame_delay_us();
             if next_us != 0 && next_us != delay_us {
-                let floor_us = self.min_delay_us.max(MIN_FRAME_US);
-                let next_frame_us = if next_us < floor_us {
-                    next_us * floor_us.div_ceil(next_us)
-                } else {
-                    next_us
-                };
-                self.next_wake =
-                    Some(self.last_tick.unwrap() + Duration::from_micros(next_frame_us));
+                let sched = next_us.max(self.min_delay_us);
+                self.next_wake = Some(self.last_tick.unwrap() + Duration::from_micros(sched));
             }
         }
     }
@@ -273,10 +273,10 @@ mod tests {
     }
 
     #[test]
-    fn max_fps_batches_fast_modes() {
+    fn max_fps_stretches_scheduling_not_simulation() {
         // binaryring hardcodes a 10_000us (100 fps) clock; with max_fps = 60
-        // the player renders every 2 ticks (20_000us frames, 50 fps <= cap)
-        // so the simulation rate is preserved while rendering is capped.
+        // wakeups stretch to 16_666us while catch-up inside each frame
+        // keeps the simulation at upstream rate.
         let params = AnimConfig {
             max_fps: 60,
             ..AnimConfig::default()
@@ -286,7 +286,7 @@ mod tests {
         player.advance(Instant::now());
         assert_eq!(
             player.next_wake.unwrap() - player.last_tick.unwrap(),
-            Duration::from_micros(20_000)
+            Duration::from_micros(1_000_000 / 60)
         );
     }
 

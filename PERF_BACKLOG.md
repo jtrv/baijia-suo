@@ -83,7 +83,7 @@ Impact: medium-high. Risk: low. Effort: small-medium.
 
 ## Additional candidates (not from the sweep — unverified, profile first)
 
-### 8. Frame-callback-driven rendering — `todo`
+### 8. Frame-callback-driven rendering — `done`
 Animation timing is timer-driven (`tick_timers` + `next_wake`); the surface
 commits regardless of visibility. Driving redraws from `wl_surface::frame`
 callbacks would let the compositor throttle us for free when the output is
@@ -92,7 +92,7 @@ win for a lock screen, which spends most of its life with the screen off.
 Needs care: PAM/auth timers must keep running independently of frame
 callbacks. Impact: potentially very high. Risk: medium. Effort: large.
 
-### 9. Skip render work entirely while all outputs are off — `todo`
+### 9. Skip render work entirely while all outputs are off — `done` (falls out of #8: withheld callbacks queue-and-disarm the whole render path)
 Related to #8 but cheaper: if the compositor signals output power-off (or no
 frame callback returns for N seconds), stop the animation clock (`next_wake =
 None`) and re-arm on the next input/output event. Impact: high on battery.

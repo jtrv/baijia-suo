@@ -6,9 +6,10 @@ use std::time::{Duration, Instant};
 use wayland_client::backend::ObjectId;
 use wayland_client::{
     protocol::{
-        wl_buffer::WlBuffer, wl_compositor::WlCompositor, wl_keyboard::WlKeyboard,
-        wl_output::WlOutput, wl_pointer::WlPointer, wl_registry::WlRegistry, wl_seat::WlSeat,
-        wl_shm::WlShm, wl_shm_pool::WlShmPool, wl_surface::WlSurface,
+        wl_buffer::WlBuffer, wl_callback, wl_callback::WlCallback, wl_compositor::WlCompositor,
+        wl_keyboard::WlKeyboard, wl_output::WlOutput, wl_pointer::WlPointer,
+        wl_registry::WlRegistry, wl_seat::WlSeat, wl_shm::WlShm, wl_shm_pool::WlShmPool,
+        wl_surface::WlSurface,
     },
     Connection, Dispatch, Proxy, QueueHandle,
 };
@@ -37,6 +38,12 @@ pub struct OutputInfo {
     pub height: u32,
     /// Integer output scale (wl_output `scale` event); 1 unless HiDPI.
     pub scale: i32,
+    /// A committed frame's wl_callback hasn't fired yet. While true we
+    /// don't commit again to this surface: the compositor paces us, and
+    /// when the output is off/occluded the callback simply never comes —
+    /// rendering (and, via the queue-and-disarm path, the animation clock)
+    /// stops with it.
+    pub frame_pending: bool,
 }
 
 pub struct WaylandState {
@@ -72,6 +79,9 @@ pub struct WaylandState {
     password_clear_at: Option<Instant>, // clear idle password after 10 s
     /// Next low-battery poll; None when the feature is off.
     battery_check_at: Option<Instant>,
+    /// A redraw was requested while every surface still owed a frame
+    /// callback; the next callback runs it.
+    present_queued: bool,
     /// Next animation frame deadline. Sourced from `AnimationPlayer::next_wake`
     /// after every `draw()` — this field is just what the event loop's
     /// generic timer poll uses to decide when to fire; the player owns the
@@ -108,6 +118,7 @@ impl WaylandState {
             auth_clear_at: None,
             password_clear_at: None,
             battery_check_at: None,
+            present_queued: false,
             anim_wake_at: None,
             pam_msg_was_live: false,
             indicator_was_visible: false,
@@ -152,6 +163,26 @@ impl WaylandState {
         };
         let qh = self.qh.clone();
 
+        // Frame-callback pacing: if every configured surface still owes us
+        // a callback, drawing now would outpace the compositor. Queue one
+        // redraw and disarm the animation clock — the next callback (which
+        // never comes while the display is off) resumes everything. The
+        // player re-anchors across the gap.
+        let any_ready = self.outputs.values().any(|i| {
+            i.configured && !i.frame_pending && i.wl_surface.is_some() && i.width > 0 && i.height > 0
+        });
+        if !any_ready {
+            if self
+                .outputs
+                .values()
+                .any(|i| i.configured && i.wl_surface.is_some())
+            {
+                self.present_queued = true;
+                self.anim_wake_at = None;
+            }
+            return;
+        }
+
         // render_to_surface sizes the player per output; the first frame
         // after a resize may render blank, which the next tick corrects.
         // In low-power mode the animation clock stops entirely — no ticks,
@@ -172,6 +203,12 @@ impl WaylandState {
                     Some(i) if i.configured => i,
                     _ => continue,
                 };
+                if info.frame_pending {
+                    // This surface still owes a callback; let it pick up the
+                    // freshest state when that callback triggers a redraw.
+                    self.present_queued = true;
+                    continue;
+                }
                 let wl_surface = match info.wl_surface.clone() {
                     Some(s) => s,
                     None => continue,
@@ -208,11 +245,15 @@ impl WaylandState {
                 log::error!("draw: render failed: {}", e);
             }
 
+            // Request the frame callback before the commit that latches it;
+            // its Done event clears frame_pending for this output.
+            wl_surface.frame(&qh, id);
             wl_surface.set_buffer_scale(scale);
             wl_surface.attach(Some(buf.buffer()), 0, 0);
             wl_surface.damage_buffer(0, 0, pw, ph);
             wl_surface.commit();
             buf.set_busy(true);
+            self.outputs.get_mut(&id).unwrap().frame_pending = true;
         }
     }
 
@@ -418,6 +459,7 @@ impl Dispatch<WlRegistry, ()> for WaylandState {
                             width: 0,
                             height: 0,
                             scale: 1,
+                            frame_pending: false,
                         },
                     );
                     // If we're already locked, this output arrived mid-lock —
@@ -763,6 +805,10 @@ impl Dispatch<ExtSessionLockSurfaceV1, ()> for WaylandState {
                     info.configured = true;
                     info.width = width;
                     info.height = height;
+                    // The protocol requires a commit after ack_configure; a
+                    // callback owed for the pre-configure buffer must not
+                    // gate it (and may never fire across a mode switch).
+                    info.frame_pending = false;
                 }
             }
             log::info!("lock surface configured: {}x{}", width, height);
@@ -783,6 +829,30 @@ impl Dispatch<WlSurface, ()> for WaylandState {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+    }
+}
+
+/// Frame callbacks pace rendering to the compositor (user data = output
+/// registry id). While a display is off or the surface occluded, its Done
+/// event is simply withheld and the whole render path sleeps with it.
+impl Dispatch<WlCallback, u32> for WaylandState {
+    fn event(
+        state: &mut Self,
+        _: &WlCallback,
+        event: <WlCallback as wayland_client::Proxy>::Event,
+        output_id: &u32,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_callback::Event::Done { .. } = event {
+            if let Some(info) = state.outputs.get_mut(output_id) {
+                info.frame_pending = false;
+            }
+            if state.present_queued {
+                state.present_queued = false;
+                state.draw();
+            }
+        }
     }
 }
 
