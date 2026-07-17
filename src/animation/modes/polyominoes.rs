@@ -19,7 +19,7 @@
 
 use rand::Rng;
 
-use crate::animation::primitives::{draw_line, put_pixel, Color};
+use crate::animation::primitives::{clear_buffer, draw_line, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
 
 /// One puzzle-piece spec: (points, allowed transforms, max piece width).
@@ -689,6 +689,14 @@ pub struct Polyominoes {
     reason: Vec<i32>,
 
     delay_us: u64,
+
+    /// Board cells whose piece assignment changed sign this tick (attach:
+    /// blank -> piece, detach: piece -> blank). Blank-mark churn (negative
+    /// to negative) is invisible in the bitmap style and isn't tracked.
+    dirty: Vec<(i32, i32)>,
+    /// Full-board repaint pending (after init/reset). Consumed by
+    /// render(&self), hence Cell.
+    full_repaint: std::cell::Cell<bool>,
 }
 
 impl Polyominoes {
@@ -958,6 +966,7 @@ impl Polyominoes {
             );
             let idx = self.ai(tp.0, tp.1);
             self.array[idx] = -1;
+            self.dirty.push(tp);
         }
         self.polyomino[poly_no].attached = false;
         (poly_no, point_no, transform_index, attach_point)
@@ -1025,6 +1034,7 @@ impl Polyominoes {
             );
             let idx = self.ai(tp.0, tp.1);
             self.array[idx] = poly_no as i32;
+            self.dirty.push(tp);
         }
 
         self.attach_list[self.nr_attached] = poly_no;
@@ -1152,6 +1162,8 @@ impl Polyominoes {
     fn init(&mut self) {
         let mut rng = rand::rng();
 
+        // Board geometry and contents change wholesale.
+        self.full_repaint.set(true);
         self.rot180 = false;
         self.counter = 0;
 
@@ -1325,6 +1337,55 @@ impl Polyominoes {
     Display routines.
     *******************************************************/
 
+    /// Erase-and-redraw one board cell in the bitmap style. Blank-mark
+    /// values don't matter here: edges are only computed for piece cells,
+    /// and any negative neighbor compares unequal regardless of mark.
+    fn draw_cell_bitmap(&self, buffer: &mut [u8], w: u32, h: u32, x: i32, y: i32) {
+        let b = self.box_size;
+        let ox = self.x_margin + b * x;
+        let oy = self.y_margin + b * y;
+        fill_rect(buffer, w, h, ox, oy, b, b, Color::new(255, 0, 0, 0));
+
+        let v = self.array[self.ai(x, y)];
+        if v < 0 {
+            return;
+        }
+        let color = self.polyomino[v as usize].color;
+        let mut idx = 0;
+        if self.arr(x, y) != self.arr(x - 1, y) {
+            idx |= LEFT;
+        }
+        if self.arr(x, y) != self.arr(x + 1, y) {
+            idx |= RIGHT;
+        }
+        if self.arr(x, y) != self.arr(x, y - 1) {
+            idx |= UP;
+        }
+        if self.arr(x, y) != self.arr(x, y + 1) {
+            idx |= DOWN;
+        }
+        if self.arr(x, y) != self.arr(x - 1, y - 1) {
+            idx |= LEFT_UP;
+        }
+        if self.arr(x, y) != self.arr(x - 1, y + 1) {
+            idx |= LEFT_DOWN;
+        }
+        if self.arr(x, y) != self.arr(x + 1, y - 1) {
+            idx |= RIGHT_UP;
+        }
+        if self.arr(x, y) != self.arr(x + 1, y + 1) {
+            idx |= RIGHT_DOWN;
+        }
+        let bm = &self.bitmaps[canonical(idx)];
+        for by in 0..b {
+            for bx in 0..b {
+                if bm[(by * b + bx) as usize] {
+                    put_pixel(buffer, w, h, ox + bx, oy + by, color);
+                }
+            }
+        }
+    }
+
     fn draw_with_bitmaps(&self, buffer: &mut [u8], w: u32, h: u32) {
         let b = self.box_size;
         let g = b / 45 + 1;
@@ -1332,47 +1393,7 @@ impl Polyominoes {
 
         for x in 0..self.bw {
             for y in 0..self.bh {
-                let v = self.array[self.ai(x, y)];
-                if v < 0 {
-                    // Blank cells stay background black.
-                    continue;
-                }
-                let color = self.polyomino[v as usize].color;
-                let mut idx = 0;
-                if self.arr(x, y) != self.arr(x - 1, y) {
-                    idx |= LEFT;
-                }
-                if self.arr(x, y) != self.arr(x + 1, y) {
-                    idx |= RIGHT;
-                }
-                if self.arr(x, y) != self.arr(x, y - 1) {
-                    idx |= UP;
-                }
-                if self.arr(x, y) != self.arr(x, y + 1) {
-                    idx |= DOWN;
-                }
-                if self.arr(x, y) != self.arr(x - 1, y - 1) {
-                    idx |= LEFT_UP;
-                }
-                if self.arr(x, y) != self.arr(x - 1, y + 1) {
-                    idx |= LEFT_DOWN;
-                }
-                if self.arr(x, y) != self.arr(x + 1, y - 1) {
-                    idx |= RIGHT_UP;
-                }
-                if self.arr(x, y) != self.arr(x + 1, y + 1) {
-                    idx |= RIGHT_DOWN;
-                }
-                let bm = &self.bitmaps[canonical(idx)];
-                let ox = self.x_margin + b * x;
-                let oy = self.y_margin + b * y;
-                for by in 0..b {
-                    for bx in 0..b {
-                        if bm[(by * b + bx) as usize] {
-                            put_pixel(buffer, w, h, ox + bx, oy + by, color);
-                        }
-                    }
-                }
+                self.draw_cell_bitmap(buffer, w, h, x, y);
             }
         }
 
@@ -1477,6 +1498,8 @@ impl Animation for Polyominoes {
             rot180: false,
             reason: Vec::new(),
             delay_us: DEF_DELAY_US,
+            dirty: Vec::new(),
+            full_repaint: std::cell::Cell::new(true),
         };
         p.reset(config);
         p
@@ -1485,6 +1508,7 @@ impl Animation for Polyominoes {
     /* draw_polyominoes: attach one more piece per frame (backtracking as
        needed). */
     fn tick(&mut self) {
+        self.dirty.clear();
         if self.cycles != 0 {
             self.counter += 1;
             if self.counter > self.cycles {
@@ -1614,8 +1638,29 @@ impl Animation for Polyominoes {
             return;
         }
         if self.use_bitmaps {
-            self.draw_with_bitmaps(buffer, width, height);
+            if self.full_repaint.replace(false) {
+                clear_buffer(buffer, Color::new(255, 0, 0, 0));
+                self.draw_with_bitmaps(buffer, width, height);
+            } else {
+                // Repaint changed cells plus their 8-neighborhood (bitmap
+                // edges depend on neighbors). Overdraw of duplicates is fine.
+                for &(cx, cy) in &self.dirty {
+                    for dy in -1..=1i32 {
+                        for dx in -1..=1i32 {
+                            let x = cx + dx;
+                            let y = cy + dy;
+                            if x >= 0 && x < self.bw && y >= 0 && y < self.bh {
+                                self.draw_cell_bitmap(buffer, width, height, x, y);
+                            }
+                        }
+                    }
+                }
+            }
         } else {
+            // The plain style draws white boundary segments from raw array
+            // values, which blank-mark churn changes en masse each tick —
+            // incremental tracking would dirty whole regions, so it keeps
+            // the full clear + redraw path.
             self.draw_without_bitmaps(buffer, width, height);
         }
     }
@@ -1630,7 +1675,7 @@ impl Animation for Polyominoes {
     }
 
     fn clears_each_frame(&self) -> bool {
-        true
+        !self.use_bitmaps
     }
 
     fn frame_delay_us(&self) -> u64 {
