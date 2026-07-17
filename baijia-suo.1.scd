@@ -46,7 +46,14 @@ animation modes may be shown instead, optionally cycling between them.
 *--max-fps* <fps>
 	Cap animation frame rates. Some modes run their own clocks at 100+ fps,
 	which wastes battery on a 60 Hz panel. Unset means uncapped (each mode's
-	original clock).
+	original clock). Capping affects rendering only; animation speed is
+	preserved.
+
+*--low-battery-percent* <percent>
+	Power saver: suspend animations and show the solid background while the
+	battery is discharging at or below this percent (checked every 30
+	seconds; animations resume when charging or back above the threshold).
+	Unset means never.
 
 *--list-animations*
 	Print the available animation mode names and exit.
@@ -106,6 +113,7 @@ Keys mirror the long option names. Example:
 	animation = ["spiral", "flame"]   # a string for one mode, or "random"
 	cycle = 60
 	max_fps = 60   # cap animation frame rates; unset = uncapped
+	low_battery_percent = 20   # power saver below 20% battery; unset = never
 	daemonize = false
 
 	\[indicator]

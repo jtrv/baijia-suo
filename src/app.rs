@@ -45,6 +45,9 @@ pub(crate) struct App {
     /// shows for [`INDICATOR_IDLE_HIDE`] after this, then hides when idle.
     last_interaction: Option<Instant>,
     pub config: Config,
+    /// Battery is at/below the configured low-battery threshold: animations
+    /// are suspended and the solid background shows (power saver).
+    pub low_power: bool,
     pub keyboard: crate::input::keyboard::KeyboardHandler,
     pub playlist: Option<Playlist>,
     auth_verifier: Option<ForkedVerifier>,
@@ -93,6 +96,7 @@ impl App {
             verification_start: None,
             auth_complete_time: None,
             segment_sequence,
+            low_power: false,
         }
     }
 
@@ -114,17 +118,21 @@ impl App {
         height: i32,
         scale: i32,
     ) -> Result<(), String> {
-        // Only fill the background when there's no animation: blit_into
-        // overwrites the full buffer anyway (ensure_sized just below
-        // guarantees matching dimensions), so a fill before it is pure waste.
-        if self.playlist.is_none() {
+        // Only fill the background when the animation won't cover it:
+        // blit_into overwrites the full buffer (ensure_sized just below
+        // guarantees matching dimensions), so a fill before it is waste.
+        // In low-power mode the animation is suspended entirely and the
+        // solid background is the whole frame.
+        if self.playlist.is_none() || self.low_power {
             let bg = self.config.background_color;
             crate::render::background::render_solid_color(buf, (bg.r, bg.g, bg.b, bg.a))?;
         }
 
-        if let Some(ref mut player) = self.playlist {
-            player.ensure_sized(width as u32, height as u32);
-            player.blit_into(buf, width, height)?;
+        if !self.low_power {
+            if let Some(ref mut player) = self.playlist {
+                player.ensure_sized(width as u32, height as u32);
+                player.blit_into(buf, width, height)?;
+            }
         }
 
         let now = Instant::now();
@@ -418,6 +426,64 @@ impl App {
         self.auth_complete_time = None;
         self.auth_state = AuthState::Idle;
     }
+}
+
+/// True when the system runs on battery at or below `threshold` percent.
+///
+/// Sums energy (falling back to charge, then capacity) across all batteries
+/// so dual-battery ThinkPads read as their combined level, and requires at
+/// least one battery to be discharging. Any read error reads as "not low" —
+/// a lock screen must never blank the animation because sysfs moved.
+pub fn battery_low(threshold: u32) -> bool {
+    let entries = match std::fs::read_dir("/sys/class/power_supply") {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    let read = |p: &std::path::Path, f: &str| -> Option<u64> {
+        std::fs::read_to_string(p.join(f)).ok()?.trim().parse().ok()
+    };
+
+    let mut discharging = false;
+    let mut now_sum: u64 = 0;
+    let mut full_sum: u64 = 0;
+    let mut capacity_fallback: Option<u64> = None;
+
+    for e in entries.flatten() {
+        let p = e.path();
+        let is_battery = std::fs::read_to_string(p.join("type"))
+            .map(|t| t.trim() == "Battery")
+            .unwrap_or(false);
+        if !is_battery {
+            continue;
+        }
+        if std::fs::read_to_string(p.join("status"))
+            .map(|s| s.trim() == "Discharging")
+            .unwrap_or(false)
+        {
+            discharging = true;
+        }
+        if let (Some(now), Some(full)) = (
+            read(&p, "energy_now").or_else(|| read(&p, "charge_now")),
+            read(&p, "energy_full").or_else(|| read(&p, "charge_full")),
+        ) {
+            now_sum += now;
+            full_sum += full;
+        } else if let Some(cap) = read(&p, "capacity") {
+            capacity_fallback = Some(capacity_fallback.map_or(cap, |c| c.min(cap)));
+        }
+    }
+
+    if !discharging {
+        return false;
+    }
+    let percent = if full_sum > 0 {
+        (100 * now_sum / full_sum) as u32
+    } else if let Some(cap) = capacity_fallback {
+        cap as u32
+    } else {
+        return false;
+    };
+    percent <= threshold
 }
 
 #[cfg(test)]

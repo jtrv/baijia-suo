@@ -46,6 +46,11 @@ pub(crate) struct Args {
     #[arg(long, value_name = "FPS")]
     pub max_fps: Option<u32>,
 
+    /// Suspend animations (solid background) when the battery is
+    /// discharging at or below this percent. Unset = never.
+    #[arg(long, value_name = "PERCENT")]
+    pub low_battery_percent: Option<u32>,
+
     /// List available animation modes and exit
     #[arg(long)]
     pub list_animations: bool,

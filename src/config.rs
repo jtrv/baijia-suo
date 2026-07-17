@@ -143,6 +143,9 @@ impl Default for IndicatorConfig {
 /// Main configuration for baijia-suo.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
+    /// Suspend animations (solid background) when the battery is
+    /// discharging at/below this percent. 0 = disabled.
+    pub low_battery_percent: u32,
     /// Background color.
     pub background_color: Color,
     /// Animation configuration.
@@ -171,6 +174,8 @@ struct FileConfig {
     cycle: Option<u64>,
     /// Frame-rate cap for animations; unset = uncapped (each mode's own clock).
     max_fps: Option<u32>,
+    /// Suspend animations below this battery percent; unset = never.
+    low_battery_percent: Option<u32>,
     daemonize: Option<bool>,
     #[serde(default)]
     indicator: IndicatorFile,
@@ -289,6 +294,11 @@ impl Config {
         }
 
         Ok(Config {
+            // 0 = disabled.
+            low_battery_percent: args
+                .low_battery_percent
+                .or(file.low_battery_percent)
+                .unwrap_or(0),
             daemonize: args.daemonize || file.daemonize.unwrap_or(false),
             ready_fd: args.ready_fd,
             background_color: pick(&args.color, file.color)

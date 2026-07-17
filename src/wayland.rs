@@ -70,6 +70,8 @@ pub struct WaylandState {
     // Timers
     auth_clear_at: Option<Instant>, // clear auth-failed indicator after 3 s
     password_clear_at: Option<Instant>, // clear idle password after 10 s
+    /// Next low-battery poll; None when the feature is off.
+    battery_check_at: Option<Instant>,
     /// Next animation frame deadline. Sourced from `AnimationPlayer::next_wake`
     /// after every `draw()` — this field is just what the event loop's
     /// generic timer poll uses to decide when to fire; the player owns the
@@ -105,6 +107,7 @@ impl WaylandState {
             repeat_interval_ms: 33, // ~30 repeats/s
             auth_clear_at: None,
             password_clear_at: None,
+            battery_check_at: None,
             anim_wake_at: None,
             pam_msg_was_live: false,
             indicator_was_visible: false,
@@ -151,10 +154,16 @@ impl WaylandState {
 
         // render_to_surface sizes the player per output; the first frame
         // after a resize may render blank, which the next tick corrects.
-        if let Some(player) = self.app.playlist.as_mut() {
-            player.advance(Instant::now());
+        // In low-power mode the animation clock stops entirely — no ticks,
+        // no wakeups — until the battery check re-enables it.
+        if self.app.low_power {
+            self.anim_wake_at = None;
+        } else {
+            if let Some(player) = self.app.playlist.as_mut() {
+                player.advance(Instant::now());
+            }
+            self.anim_wake_at = self.app.playlist.as_ref().and_then(|p| p.next_wake());
         }
-        self.anim_wake_at = self.app.playlist.as_ref().and_then(|p| p.next_wake());
 
         let ids: Vec<u32> = self.outputs.keys().copied().collect();
         for id in ids {
@@ -224,6 +233,7 @@ impl WaylandState {
             self.auth_clear_at,
             self.password_clear_at,
             self.anim_wake_at,
+            self.battery_check_at,
             indicator_timer,
             self.app.pam_message_deadline(now),
             self.app.indicator_hide_deadline(now),
@@ -327,6 +337,18 @@ impl WaylandState {
 
         if self.app.indicator_active(now) {
             needs_draw = true;
+        }
+
+        // Low-battery power saver: poll sysfs every 30 s; on a state flip
+        // redraw once (suspending or resuming the animation).
+        let threshold = self.app.config.low_battery_percent;
+        if threshold > 0 && self.battery_check_at.is_none_or(|t| now >= t) {
+            self.battery_check_at = Some(now + Duration::from_secs(30));
+            let low = crate::app::battery_low(threshold);
+            if low != self.app.low_power {
+                self.app.low_power = low;
+                needs_draw = true;
+            }
         }
 
         if needs_draw {
