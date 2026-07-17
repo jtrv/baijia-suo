@@ -107,6 +107,12 @@ pub struct Moire {
     draw_factor: i32,
     pixels: Vec<u8>,
     next_delay_us: u64,
+    /// Rows touched by the last tick — render() copies only these.
+    blit_from: i32,
+    blit_rows: i32,
+    /// First render after (re)construction copies the whole buffer so the
+    /// blue background shows; consumed by render(&self).
+    full_blit: std::cell::Cell<bool>,
 }
 
 impl Moire {
@@ -146,6 +152,9 @@ impl Animation for Moire {
             draw_factor: 1,
             pixels,
             next_delay_us: DELAY_SEC * 3_500, // 7 rows per chunk (see CHUNK_SIZE), same rows/s as upstream
+            blit_from: 0,
+            blit_rows: 0,
+            full_blit: std::cell::Cell::new(true),
         }
     }
 
@@ -174,6 +183,8 @@ impl Animation for Moire {
                 put_pixel(&mut self.pixels, self.width, self.height, x, y, color);
             }
         }
+        self.blit_from = self.draw_y;
+        self.blit_rows = CHUNK_SIZE.min(h - self.draw_y).max(0);
         self.draw_y += CHUNK_SIZE;
 
         if self.draw_y >= h {
@@ -185,10 +196,22 @@ impl Animation for Moire {
     }
 
     fn render(&self, buffer: &mut [u8], _width: u32, _height: u32) {
-        if buffer.len() == self.pixels.len() {
-            buffer.copy_from_slice(&self.pixels);
-        } else {
+        if buffer.len() != self.pixels.len() {
             clear_buffer(buffer, Color::new(255, 0, 0, 0));
+            return;
+        }
+        if self.full_blit.replace(false) {
+            buffer.copy_from_slice(&self.pixels);
+            return;
+        }
+        // Only the rows the tick touched — the buffer persists between
+        // frames, so the rest is already current.
+        let stride = self.width as usize * 4;
+        let from = (self.blit_from.max(0) as usize) * stride;
+        let to = from + (self.blit_rows.max(0) as usize) * stride;
+        let to = to.min(self.pixels.len());
+        if from < to {
+            buffer[from..to].copy_from_slice(&self.pixels[from..to]);
         }
     }
 
