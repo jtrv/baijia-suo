@@ -78,13 +78,31 @@ fn wrap_f(val: &mut f64, lower: f64, upper: f64) {
     }
 }
 
-// set point / get point (the pixel index buffer is the authoritative state;
-// render() repaints it through the palette, which is exactly what the C
-// hack's redraw()/palupdate() did).
-fn sp(point: &mut [u8], wid: i32, x: i32, y: i32, c: u8) {
+// set point / get point. The pixel index buffer stays the authoritative
+// state; `sp` also paints the matching BGRA canvas entry so render() can be
+// a memcpy instead of a full-screen palette scan per frame. On palette
+// changes the canvas is repainted wholesale from `point` (rare — that's the
+// pass this removes from every frame).
+fn sp(
+    point: &mut [u8],
+    canvas: &mut [u8],
+    colors: &[Color; TAILMAX],
+    wid: i32,
+    x: i32,
+    y: i32,
+    c: u8,
+) {
     let idx = (wid * y + x) as usize;
     if idx < point.len() {
         point[idx] = c;
+        let cidx = idx * 4;
+        if cidx + 3 < canvas.len() {
+            let col = colors[(c as usize).min(TAILMAX - 1)];
+            canvas[cidx] = col.b;
+            canvas[cidx + 1] = col.g;
+            canvas[cidx + 2] = col.r;
+            canvas[cidx + 3] = col.a;
+        }
     }
 }
 
@@ -182,6 +200,8 @@ pub struct Vermiculate {
     cosof: [f64; DEGS as usize],
     tanof: [f64; DEGS as usize],
     point: Vec<u8>,
+    /// BGRA mirror of `point` through the palette (see `sp`).
+    canvas: Vec<u8>,
 
     thread: Vec<LineData>,
     bank: [u8; THRMAX],
@@ -230,6 +250,24 @@ impl Vermiculate {
 
     fn clearscreen(&mut self) {
         self.point.iter_mut().for_each(|p| *p = 0);
+        self.repaint_canvas();
+    }
+
+    /// Rebuild the BGRA canvas from the index buffer — needed whenever the
+    /// palette changes under pixels already on screen. Rare (pattern resets
+    /// and autopal), which is why the per-frame version of this scan was
+    /// worth removing from render().
+    fn repaint_canvas(&mut self) {
+        for (i, &c) in self.point.iter().enumerate() {
+            let col = self.mycolors[(c as usize).min(TAILMAX - 1)];
+            let cidx = i * 4;
+            if cidx + 3 < self.canvas.len() {
+                self.canvas[cidx] = col.b;
+                self.canvas[cidx + 1] = col.g;
+                self.canvas[cidx + 2] = col.r;
+                self.canvas[cidx + 3] = col.a;
+            }
+        }
     }
 
     fn randpal(&mut self, rng: &mut impl Rng) {
@@ -241,6 +279,7 @@ impl Vermiculate {
             let (r, g, b) = hsv_to_rgb(h, s, v);
             self.mycolors[c] = Color::new(255, (r >> 8) as u8, (g >> 8) as u8, (b >> 8) as u8);
         }
+        self.repaint_canvas();
     }
 
     fn gridupdate(&mut self, interruptible: bool, rng: &mut impl Rng) {
@@ -254,13 +293,13 @@ impl Vermiculate {
                     if (random1(rng, 15) as i32) < self.gridden {
                         let max = (x + self.boxw).min(xmax);
                         for xc in x..=max {
-                            sp(&mut self.point, self.wid, xc, y, 1);
+                            sp(&mut self.point, &mut self.canvas, &self.mycolors, self.wid, xc, y, 1);
                         }
                     }
                     if (random1(rng, 15) as i32) < self.gridden {
                         let max = (y + self.boxh).min(ymax);
                         for yc in y..=max {
-                            sp(&mut self.point, self.wid, x, yc, 1);
+                            sp(&mut self.point, &mut self.canvas, &self.mycolors, self.wid, x, yc, 1);
                         }
                     }
                     y += self.boxh;
@@ -284,10 +323,10 @@ impl Vermiculate {
             xmax
         };
         for x in 0..=xmax {
-            sp(&mut self.point, self.wid, x, ybord, self.bordcol);
+            sp(&mut self.point, &mut self.canvas, &self.mycolors, self.wid, x, ybord, self.bordcol);
         }
         for y in 0..=ymax {
-            sp(&mut self.point, self.wid, xbord, y, self.bordcol);
+            sp(&mut self.point, &mut self.canvas, &self.mycolors, self.wid, xbord, y, self.bordcol);
         }
     }
 
@@ -670,7 +709,7 @@ impl Vermiculate {
                         let mut yy = yi - yi % boxh;
                         while yy <= yi - yi % boxh + boxh && yy <= ymax {
                             if gp(&self.point, wid, xi + 1, yy) != 1 || yy == ymax {
-                                sp(&mut self.point, wid, xi, yy, 0);
+                                sp(&mut self.point, &mut self.canvas, &self.mycolors, wid, xi, yy, 0);
                             }
                             yy += 1;
                         }
@@ -679,7 +718,7 @@ impl Vermiculate {
                         let mut xx = xi - xi % boxw;
                         while xx <= xi - xi % boxw + boxw && xx <= xmax {
                             if gp(&self.point, wid, xx, yi + 1) != 1 || xx == xmax {
-                                sp(&mut self.point, wid, xx, yi, 0);
+                                sp(&mut self.point, &mut self.canvas, &self.mycolors, wid, xx, yi, 0);
                             }
                             xx += 1;
                         }
@@ -697,17 +736,19 @@ impl Vermiculate {
         let xi = lp.x as i32;
         let yi = lp.y as i32;
 
-        sp(&mut self.point, wid, xi, yi, lp.col);
+        sp(&mut self.point, &mut self.canvas, &self.mycolors, wid, xi, yi, lp.col);
         if lp.filled {
             let (rx, ry) = (
                 lp.xrec[lp.recpos as usize],
                 lp.yrec[lp.recpos as usize],
             );
             if erasing {
-                sp(&mut self.point, wid, rx, ry, 0);
+                sp(&mut self.point, &mut self.canvas, &self.mycolors, wid, rx, ry, 0);
             } else {
                 sp(
                     &mut self.point,
+                    &mut self.canvas,
+                    &self.mycolors,
                     wid,
                     rx,
                     ry,
@@ -1072,7 +1113,7 @@ impl Vermiculate {
                         };
                         for c in 0..=lastpos.max(0) as usize {
                             let (x, y) = (self.thread[ti].xrec[c], self.thread[ti].yrec[c]);
-                            sp(&mut self.point, self.wid, x, y, 0);
+                            sp(&mut self.point, &mut self.canvas, &self.mycolors, self.wid, x, y, 0);
                         }
                         self.threads -= 1;
                     }
@@ -1096,6 +1137,7 @@ impl Animation for Vermiculate {
             cosof: [0.0; DEGS as usize],
             tanof: [0.0; DEGS as usize],
             point: Vec::new(),
+            canvas: Vec::new(),
             thread: (0..THRMAX).map(|_| LineData::new()).collect(),
             bank: [0; THRMAX],
             bnkt: 0,
@@ -1164,19 +1206,28 @@ impl Animation for Vermiculate {
     }
 
     fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
-        let w = self.wid.min(width as i32);
-        let h = self.hei.min(height as i32);
-        for y in 0..h {
-            let row = (self.wid * y) as usize;
-            for x in 0..w {
-                let c = self.point[row + x as usize] as usize;
-                if c == 0 {
-                    continue;
-                }
-                let color = self.mycolors[c.min(TAILMAX - 1)];
-                if self.pscale == 1 {
-                    put_pixel(buffer, width, height, x, y, color);
-                } else {
+        if self.pscale == 1 {
+            let w = (self.wid.min(width as i32) as usize) * 4;
+            let h = self.hei.min(height as i32) as usize;
+            for y in 0..h {
+                let src = y * self.wid as usize * 4;
+                let dst = y * width as usize * 4;
+                buffer[dst..dst + w].copy_from_slice(&self.canvas[src..src + w]);
+            }
+        } else {
+            // Legacy full palette scan for the >2560px pscale path: its
+            // overlapping pscale x pscale blocks depend on scan order, which
+            // the canvas (write-order) can't reproduce.
+            let w = self.wid.min(width as i32);
+            let h = self.hei.min(height as i32);
+            for y in 0..h {
+                let row = (self.wid * y) as usize;
+                for x in 0..w {
+                    let c = self.point[row + x as usize] as usize;
+                    if c == 0 {
+                        continue;
+                    }
+                    let color = self.mycolors[c.min(TAILMAX - 1)];
                     for dy in 0..self.pscale {
                         for dx in 0..self.pscale {
                             put_pixel(buffer, width, height, x + dx, y + dy, color);
@@ -1207,13 +1258,16 @@ impl Animation for Vermiculate {
         };
 
         self.point = vec![0u8; (self.wid * self.hei).max(0) as usize];
+        self.canvas = vec![0u8; (self.wid * self.hei).max(0) as usize * 4];
+        self.repaint_canvas(); // seed alpha + background
         self.maininit(&mut rng);
         self.consume_instring(&mut rng);
         self.delay_us = 10_000;
     }
 
     fn clears_each_frame(&self) -> bool {
-        true
+        // pscale > 1 keeps the legacy scan-into-cleared-buffer path.
+        self.pscale != 1
     }
 
     fn frame_delay_us(&self) -> u64 {
