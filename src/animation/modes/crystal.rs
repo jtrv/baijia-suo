@@ -635,7 +635,9 @@ impl Animation for Crystal {
         
         neqv = neqv * self.nx * self.ny;
         
-        let count = if config.count == 0 { -500 } else { config.count };
+        // crystal.c ModStruct count default is -40 (random 1..=40 atoms).
+        // An earlier -500 here overpopulated the lattice ~12x.
+        let count = if config.count == 0 { -40 } else { config.count };
         
         if count == 0 {
             self.num_atom = DEF_NUM_ATOM;

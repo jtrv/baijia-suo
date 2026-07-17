@@ -141,6 +141,21 @@ impl Animation for Blot {
             x += dx;
             y += dy;
 
+            // Deviation from xlockmore: the C lets the random walk wander
+            // off-screen (X11 just clips), which often leaves much of the
+            // blot invisible. Reflect the walk at the edges instead — same
+            // step statistics, but the blot stays composed on screen.
+            if x < 0 {
+                x = -x;
+            } else if x >= self.width as i32 {
+                x = 2 * (self.width as i32 - 1) - x;
+            }
+            if y < 0 {
+                y = -y;
+            } else if y >= self.height as i32 {
+                y = 2 * (self.height as i32 - 1) - y;
+            }
+
             k -= 1;
             self.points.push((x, y));
 

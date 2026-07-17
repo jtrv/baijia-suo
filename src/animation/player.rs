@@ -121,11 +121,13 @@ impl AnimationPlayer {
     /// `next_wake` still gets armed, but there's no buffer yet to render
     /// into, so the render step is skipped until a size is known.
     pub fn advance(&mut self, now: Instant) {
-        /// Fastest wakeup cadence worth scheduling: ~60 fps, the panel
-        /// rate. Rendering faster is invisible; modes with faster upstream
-        /// clocks (lightning/petri/binaryring 10ms, discrete 1ms) keep
-        /// their exact simulation rate via tick batching below.
-        const MIN_FRAME_US: u64 = 16_666;
+        /// Fastest wakeup cadence worth scheduling (100 fps — what the
+        /// upstream hacks' 10ms clocks assume). Only faster clocks
+        /// (discrete's 1ms) batch ticks per frame. Not 60 fps: strobe-like
+        /// modes (lightning) toggle visibility per 10ms tick, and batching
+        /// 2 ticks per frame deterministically hides parts of the flicker
+        /// that upstream's per-tick rendering shows.
+        const MIN_FRAME_US: u64 = 10_000;
 
         let delay_us = self.animation.frame_delay_us();
         if delay_us == 0 {
@@ -166,31 +168,48 @@ impl AnimationPlayer {
 
         self.next_wake = Some(self.last_tick.unwrap() + Duration::from_micros(frame_us));
 
-        let (Some((w, h)), Some(buf)) = (self.surface_size, self.buffer.as_mut()) else {
-            return;
-        };
-
-        if self.animation.clears_each_frame() {
-            if ticked {
+        if let (Some((w, h)), Some(buf)) = (self.surface_size, self.buffer.as_mut()) {
+            if self.animation.clears_each_frame() {
+                if ticked {
+                    for _ in 0..ticks_per_frame {
+                        self.animation.tick();
+                    }
+                }
+                // Skip the clear + render when nothing ticked and the buffer
+                // already holds the current frame: keystroke/indicator
+                // redraws call advance() far more often than most mode
+                // clocks fire, and re-rendering an identical frame is waste.
+                if ticked || self.dirty {
+                    primitives::clear_buffer(buf, self.background);
+                    self.animation.render(buf, w, h);
+                    self.dirty = false;
+                }
+            } else if ticked {
+                // tick+render pairs: incremental modes queue draw ops per
+                // tick and consume them in render, so the pairing must hold.
                 for _ in 0..ticks_per_frame {
                     self.animation.tick();
+                    self.animation.render(buf, w, h);
                 }
             }
-            // Skip the clear + render when nothing ticked and the buffer
-            // already holds the current frame: keystroke/indicator redraws
-            // call advance() far more often than most mode clocks fire, and
-            // re-rendering an identical frame is pure waste.
-            if ticked || self.dirty {
-                primitives::clear_buffer(buf, self.background);
-                self.animation.render(buf, w, h);
-                self.dirty = false;
-            }
-        } else if ticked {
-            // tick+render pairs: incremental modes queue draw ops per tick
-            // and consume them in render, so the pairing must be preserved.
-            for _ in 0..ticks_per_frame {
-                self.animation.tick();
-                self.animation.render(buf, w, h);
+        }
+
+        // Variable-delay modes (moire's 5s finished-screen pause, coral,
+        // abstractile, ...) change frame_delay_us() *inside* tick(). The
+        // next wakeup must use the post-tick delay: scheduling with the
+        // pre-tick value made the first chunk of a new moire pattern sit
+        // for a full extra pause before the sweep continued.
+        if ticked {
+            let next_us = self.animation.frame_delay_us();
+            if next_us != 0 && next_us != delay_us {
+                let floor_us = self.min_delay_us.max(MIN_FRAME_US);
+                let next_frame_us = if next_us < floor_us {
+                    next_us * floor_us.div_ceil(next_us)
+                } else {
+                    next_us
+                };
+                self.next_wake =
+                    Some(self.last_tick.unwrap() + Duration::from_micros(next_frame_us));
             }
         }
     }
@@ -272,17 +291,16 @@ mod tests {
     }
 
     #[test]
-    fn frame_floor_batches_without_slowing_simulation() {
-        // Default max_fps = 0: binaryring's 10_000us clock is faster than
-        // the 16_666us frame floor, so the player renders every 2 ticks
-        // (20_000us frames) — simulation rate preserved, wakeups halved.
+    fn no_max_fps_runs_upstream_clocks_natively() {
+        // Default max_fps = 0: binaryring's 10_000us clock sits at the
+        // frame floor and runs 1:1, like upstream.
         let mut player =
             AnimationPlayer::new("binaryring", AnimConfig::default(), (0.0, 0.0, 0.0, 1.0))
                 .expect("binaryring is registered");
         player.advance(Instant::now());
         assert_eq!(
             player.next_wake.unwrap() - player.last_tick.unwrap(),
-            Duration::from_micros(20_000)
+            Duration::from_micros(10_000)
         );
     }
 

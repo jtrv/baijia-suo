@@ -446,7 +446,16 @@ impl Animation for Mandelbrot {
         };
 
         self.cycles = if config.cycles <= 0 { 20000 } else { config.cycles };
-        self.delay_us = config.delay_us;
+        // Deviation from xlockmore: the 25ms clock computes one column per
+        // tick, so wall-clock per image scales with width — 3x slower at
+        // 1920px than on the ~640px screens it was tuned for. Scale the
+        // tick rate by width/640; the player's frame floor batches the
+        // extra ticks (adjacent columns per frame), keeping the sweep
+        // smooth and the per-image wall-clock at the era feel. The
+        // between-image waiting phase (columns past the width) scales
+        // identically.
+        let width_scale = (config.width as u64).max(640) / 640;
+        self.delay_us = (config.delay_us / width_scale.max(1)).max(1);
 
         self.backwards = rng.random::<bool>();
         if self.backwards {
