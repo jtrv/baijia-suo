@@ -148,44 +148,53 @@ impl AnimationPlayer {
         //   reads as stop-and-go motion (seen on xrayswarm).
         let max_ticks: u64 = if delay_us < REFRESH_US { 10 } else { 1 };
 
-        let ticks = match self.last_tick {
+        // Catch-up ticks share a wall-clock budget: cheap ticks (discrete
+        // plots 4096 points in microseconds) catch all the way up, while a
+        // mode whose tick cost has grown (petri with a screen-spanning
+        // colony front) stops early and drops the rest of the backlog.
+        // Without the budget, catch-up compounds on heavy modes: a late
+        // frame runs several heavy ticks, making the next frame later
+        // still. Upstream never catches up at all — dropping backlog is
+        // the faithful degradation.
+        const TICK_BUDGET: Duration = Duration::from_millis(8);
+
+        let (planned, last_anchor) = match self.last_tick {
             Some(last) => {
                 let elapsed = now.duration_since(last).as_micros() as u64;
                 if elapsed >= delay_us {
                     let n = (elapsed / delay_us).min(max_ticks);
-                    // Keep the absolute cadence when roughly on time, but
-                    // re-anchor to `now` once we're beyond what we're
-                    // willing to catch up, so a backlog never forces
-                    // back-to-back frames.
-                    self.last_tick = Some(if elapsed >= (max_ticks + 1) * delay_us {
+                    // Anchor candidate keeps the absolute cadence when
+                    // roughly on time; a backlog beyond the catch-up cap
+                    // re-anchors to `now` instead.
+                    let anchor = if elapsed >= (max_ticks + 1) * delay_us {
                         now
                     } else {
                         last + Duration::from_micros(n * delay_us)
-                    });
-                    n
+                    };
+                    (n, anchor)
                 } else {
-                    0
+                    (0, last)
                 }
             }
-            None => {
-                self.last_tick = Some(now);
-                1
-            }
+            None => (1, now),
         };
-        let ticked = ticks > 0;
 
-        self.next_wake = Some(self.last_tick.unwrap() + Duration::from_micros(sched_us));
-
+        let mut done: u64 = 0;
         if let (Some((w, h)), Some(buf)) = (self.surface_size, self.buffer.as_mut()) {
+            let budget_start = Instant::now();
             if self.animation.clears_each_frame() {
-                for _ in 0..ticks {
+                for _ in 0..planned {
                     self.animation.tick();
+                    done += 1;
+                    if budget_start.elapsed() > TICK_BUDGET {
+                        break;
+                    }
                 }
                 // Skip the clear + render when nothing ticked and the buffer
                 // already holds the current frame: keystroke/indicator
                 // redraws call advance() far more often than most mode
                 // clocks fire, and re-rendering an identical frame is waste.
-                if ticked || self.dirty {
+                if done > 0 || self.dirty {
                     primitives::clear_buffer(buf, self.background);
                     self.animation.render(buf, w, h);
                     self.dirty = false;
@@ -193,12 +202,28 @@ impl AnimationPlayer {
             } else {
                 // tick+render pairs: incremental modes queue draw ops per
                 // tick and consume them in render, so the pairing must hold.
-                for _ in 0..ticks {
+                for _ in 0..planned {
                     self.animation.tick();
                     self.animation.render(buf, w, h);
+                    done += 1;
+                    if budget_start.elapsed() > TICK_BUDGET {
+                        break;
+                    }
                 }
             }
+        } else {
+            // No buffer yet: clock-only advance, nothing to measure.
+            done = planned;
         }
+
+        let ticked = done > 0;
+        self.last_tick = Some(if done < planned {
+            // Budget hit — drop the remaining backlog so it can't pile up.
+            now
+        } else {
+            last_anchor
+        });
+        self.next_wake = Some(self.last_tick.unwrap() + Duration::from_micros(sched_us));
 
         // Variable-delay modes (moire's 5s finished-screen pause, coral,
         // abstractile, ...) change frame_delay_us() *inside* tick(). The
