@@ -86,6 +86,13 @@ pub struct Lightning {
     draw_time: i32,
     stage: i32,
     busy_loop: i32,
+    /// The between-strike black gap (stage 3) lasts one 10ms tick — shorter
+    /// than a presented frame, so tick batching can step over it entirely,
+    /// blending consecutive flashes together. Set on entering stage 3 and
+    /// consumed by render(&self), which guarantees the gap exactly one
+    /// rendered frame regardless of batch phase. Identical to the unbatched
+    /// behavior when ticks and frames are 1:1.
+    gap_pending: std::cell::Cell<bool>,
     color: Color,
     ncolors: usize,
     delay_us: u64,
@@ -444,6 +451,7 @@ impl Animation for Lightning {
             draw_time: 0,
             stage: 0,
             busy_loop: 0,
+            gap_pending: std::cell::Cell::new(false),
             color: Color::new(255, 255, 255, 255),
             ncolors: config.ncolors.max(2) as usize,
             delay_us: config.delay_us,
@@ -464,6 +472,7 @@ impl Animation for Lightning {
         self.stage = 0;
         self.busy_loop = 0;
         self.draw_time = 0;
+        self.gap_pending.set(false);
     }
 
     fn tick(&mut self) {
@@ -490,6 +499,7 @@ impl Animation for Lightning {
                 if self.busy_loop > 6 {
                     self.stage = 3;
                     self.busy_loop = 0;
+                    self.gap_pending.set(true);
                 }
             }
             3 => {
@@ -518,6 +528,10 @@ impl Animation for Lightning {
     }
 
     fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
+        // Guarantee the between-strike gap one black frame (see gap_pending).
+        if self.gap_pending.replace(false) {
+            return;
+        }
         if self.stage == 1 || self.stage == 2 {
             for i in 0..self.multi_strike {
                 let bolt = &self.bolts[i];
