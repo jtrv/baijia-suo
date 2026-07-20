@@ -104,17 +104,23 @@ fn distance(a: XPoint, b: XPoint) -> f32 {
     (dx * dx + dy * dy).sqrt()
 }
 
-fn setup_multi_strike(rng: &mut impl Rng) -> usize {
-    let multi_prob = rng.random_range(0..100);
+/// lightning.c's boundary conditions have holes that are load-bearing
+/// quirks: values 50 and 75 fall through every branch to the four-bolt
+/// case, giving 50/24/16/10% for one through four bolts.
+fn multi_strike_for(multi_prob: u32) -> usize {
     if multi_prob < 50 {
         1
-    } else if multi_prob < 75 {
+    } else if (51..75).contains(&multi_prob) {
         2
-    } else if multi_prob < 92 {
+    } else if (76..92).contains(&multi_prob) {
         3
     } else {
         BOLT_NUMBER
     }
+}
+
+fn setup_multi_strike(rng: &mut impl Rng) -> usize {
+    multi_strike_for(rng.random_range(0..100))
 }
 
 fn flash_duration(total_duration: i32, rng: &mut impl Rng) -> (i32, i32) {
@@ -515,13 +521,13 @@ impl Animation for Lightning {
                 }
             }
             4 => {
-                self.busy_loop += 1;
-                if self.busy_loop > 100 {
-                    self.busy_loop = 0;
-                    self.multi_strike = setup_multi_strike(&mut rng);
-                    random_storm(&mut self.bolts, self.scr_width, self.scr_height, self.multi_strike, &mut rng);
-                    self.stage = 0;
-                }
+                // lightning.c stage 4 calls init_lightning() immediately on
+                // every invocation (its busyLoop bookkeeping is vestigial) —
+                // the next storm starts on the very next tick. An earlier
+                // port version waited ~1s here, which upstream never does.
+                self.multi_strike = setup_multi_strike(&mut rng);
+                random_storm(&mut self.bolts, self.scr_width, self.scr_height, self.multi_strike, &mut rng);
+                self.stage = 0;
             }
             _ => {}
         }
@@ -548,5 +554,31 @@ impl Animation for Lightning {
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn multi_strike_matches_upstream_boundary_holes() {
+        // lightning.c: <50 -> 1; >=51 && <75 -> 2; >=76 && <92 -> 3; else 4.
+        // The holes at 50 and 75 fall through to four bolts.
+        assert_eq!(multi_strike_for(0), 1);
+        assert_eq!(multi_strike_for(49), 1);
+        assert_eq!(multi_strike_for(50), BOLT_NUMBER);
+        assert_eq!(multi_strike_for(51), 2);
+        assert_eq!(multi_strike_for(74), 2);
+        assert_eq!(multi_strike_for(75), BOLT_NUMBER);
+        assert_eq!(multi_strike_for(76), 3);
+        assert_eq!(multi_strike_for(91), 3);
+        assert_eq!(multi_strike_for(92), BOLT_NUMBER);
+        assert_eq!(multi_strike_for(99), BOLT_NUMBER);
+        let dist: Vec<usize> = (0..100).map(multi_strike_for).collect();
+        assert_eq!(dist.iter().filter(|&&n| n == 1).count(), 50);
+        assert_eq!(dist.iter().filter(|&&n| n == 2).count(), 24);
+        assert_eq!(dist.iter().filter(|&&n| n == 3).count(), 16);
+        assert_eq!(dist.iter().filter(|&&n| n == BOLT_NUMBER).count(), 10);
     }
 }
