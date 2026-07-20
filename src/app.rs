@@ -49,7 +49,15 @@ pub(crate) struct App {
     /// are suspended and the solid background shows (power saver).
     pub low_power: bool,
     pub keyboard: crate::input::keyboard::KeyboardHandler,
-    pub playlist: Option<Playlist>,
+    /// One playlist per physical output size, created lazily on the first
+    /// frame for that size. A single shared player reset itself on every
+    /// frame when outputs had different dimensions; per-size players match
+    /// xlockmore's per-screen state model.
+    pub playlists: std::collections::HashMap<(u32, u32), Playlist>,
+    /// False once modes were configured but none were valid — stops the
+    /// lazy creation from retrying (and re-warning) every frame.
+    animation_enabled: bool,
+    background_rgba: (f64, f64, f64, f64),
     auth_verifier: Option<ForkedVerifier>,
     pub keystroke_timestamps: Vec<Instant>,
     pub verification_start: Option<Instant>,
@@ -67,16 +75,6 @@ impl App {
             config.background_color.a,
         );
 
-        let playlist = Playlist::new(
-            &config.animation.modes,
-            config.animation.cycle,
-            config.animation.params.clone(),
-            background_rgba,
-        );
-        if playlist.is_none() && !config.animation.modes.is_empty() {
-            log::warn!("no valid animation modes; falling back to solid background");
-        }
-
         use rand::seq::SliceRandom;
         let mut segment_sequence: Vec<usize> = (0..NUM_SEGMENTS).collect();
         segment_sequence.shuffle(&mut rand::rng());
@@ -88,9 +86,11 @@ impl App {
             last_pam_message: None,
             pam_message_at: None,
             last_interaction: None,
+            animation_enabled: !config.animation.modes.is_empty(),
             config,
             keyboard: crate::input::keyboard::KeyboardHandler::new(),
-            playlist,
+            playlists: std::collections::HashMap::new(),
+            background_rgba,
             auth_verifier: None,
             keystroke_timestamps: Vec::new(),
             verification_start: None,
@@ -98,6 +98,54 @@ impl App {
             segment_sequence,
             low_power: false,
         }
+    }
+
+    /// The playlist for one physical output size, created on first use.
+    /// Returns None when animation is disabled (no modes, none valid, or a
+    /// creation failure — which disables further attempts).
+    fn playlist_for(&mut self, width: u32, height: u32) -> Option<&mut Playlist> {
+        if !self.animation_enabled || width == 0 || height == 0 {
+            return None;
+        }
+        use std::collections::hash_map::Entry;
+        match self.playlists.entry((width, height)) {
+            Entry::Occupied(e) => Some(e.into_mut()),
+            Entry::Vacant(e) => {
+                let mut params = self.config.animation.params.clone();
+                params.width = width;
+                params.height = height;
+                match Playlist::new(
+                    &self.config.animation.modes,
+                    self.config.animation.cycle,
+                    params,
+                    self.background_rgba,
+                ) {
+                    Some(mut p) => {
+                        p.ensure_sized(width, height);
+                        Some(e.insert(p))
+                    }
+                    None => {
+                        log::warn!("no valid animation modes; falling back to solid background");
+                        self.animation_enabled = false;
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    /// Advance every per-size playlist's clock. Called once per draw cycle
+    /// by the event loop; playlists for sizes that haven't rendered yet
+    /// simply don't exist and get created current on first render.
+    pub fn advance_animations(&mut self, now: Instant) {
+        for p in self.playlists.values_mut() {
+            p.advance(now);
+        }
+    }
+
+    /// Earliest next animation wakeup across all per-size playlists.
+    pub fn next_anim_wake(&self) -> Option<Instant> {
+        self.playlists.values().filter_map(|p| p.next_wake()).min()
     }
 
     /// Render the current state into the raw `wl_shm` BGRA buffer `buf`
@@ -118,21 +166,20 @@ impl App {
         height: i32,
         scale: i32,
     ) -> Result<(), String> {
-        // Only fill the background when the animation won't cover it:
-        // blit_into overwrites the full buffer (ensure_sized just below
-        // guarantees matching dimensions), so a fill before it is waste.
-        // In low-power mode the animation is suspended entirely and the
-        // solid background is the whole frame.
-        if self.playlist.is_none() || self.low_power {
+        // The animation blit covers the whole buffer (the playlist for this
+        // size matches its dimensions by construction); the solid background
+        // is only filled when no blit happened — animation disabled, low
+        // power, or the first-call discovery that no modes are valid.
+        let mut animated = false;
+        if !self.low_power {
+            if let Some(player) = self.playlist_for(width as u32, height as u32) {
+                player.blit_into(buf, width, height)?;
+                animated = true;
+            }
+        }
+        if !animated {
             let bg = self.config.background_color;
             crate::render::background::render_solid_color(buf, (bg.r, bg.g, bg.b, bg.a))?;
-        }
-
-        if !self.low_power {
-            if let Some(ref mut player) = self.playlist {
-                player.ensure_sized(width as u32, height as u32);
-                player.blit_into(buf, width, height)?;
-            }
         }
 
         let now = Instant::now();
@@ -564,5 +611,25 @@ mod tests {
             "message drops after its TTL"
         );
         assert!(app.pam_message_deadline(later).is_none());
+    }
+
+    #[test]
+    fn mixed_output_sizes_get_independent_players() {
+        let mut config = Config::default();
+        config.animation.modes = vec!["spiral".into()];
+        let mut app = App::new(config);
+        let (w1, h1) = (100i32, 80i32);
+        let (w2, h2) = (160i32, 120i32);
+        let mut buf1 = vec![0u8; (w1 * h1 * 4) as usize];
+        let mut buf2 = vec![0u8; (w2 * h2 * 4) as usize];
+        // Interleave two sizes: with the old single shared player this
+        // reset the animation on every call; per-size players must end up
+        // as exactly two stable entries.
+        for _ in 0..3 {
+            app.advance_animations(Instant::now());
+            app.render_to_surface(&mut buf1, w1, h1, 1).unwrap();
+            app.render_to_surface(&mut buf2, w2, h2, 1).unwrap();
+        }
+        assert_eq!(app.playlists.len(), 2, "one player per physical size");
     }
 }

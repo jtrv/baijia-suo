@@ -206,10 +206,8 @@ impl WaylandState {
         if self.app.low_power {
             self.anim_wake_at = None;
         } else {
-            if let Some(player) = self.app.playlist.as_mut() {
-                player.advance(Instant::now());
-            }
-            self.anim_wake_at = self.app.playlist.as_ref().and_then(|p| p.next_wake());
+            self.app.advance_animations(Instant::now());
+            self.anim_wake_at = self.app.next_anim_wake();
         }
 
         let t_advanced = t_start.map(|_| Instant::now());
