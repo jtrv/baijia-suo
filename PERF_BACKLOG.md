@@ -72,7 +72,7 @@ buffer every frame.
 Impact: medium. Risk: none. Effort: small (kept here because it needs a
 one-frame full-copy path after resize/reset to stay correct).
 
-### 7. piecewise: incremental arc rasterization — `todo`
+### 7. piecewise: incremental arc rasterization — `done`
 `src/animation/modes/piecewise.rs:796-811`.
 `draw_arc` calls `.cos()`/`.sin()` at every arc step; steps scale with radius,
 across ~32 circles per frame — thousands of trig pairs per frame.
@@ -143,3 +143,35 @@ rotate), but clearing modes (`clears_each_frame() == true`) rebuild the frame
 from scratch anyway and could render straight into the shm buffer, saving an
 ~8 MB copy per frame at 1080p. Impact: medium. Risk: low. Effort: medium
 (per-output sizing lives in the player today).
+
+
+## 2026-07-20 review round (external review.txt + inline design review)
+
+Done this round: lightning stage-4/multi-strike parity, MSRV 1.82 + fmt +
+clippy clean, `--debug-timing` instrumentation, per-size players (mixed-output
+reset bug), three-state `RenderPolicy` (CompleteFrame batching for 9 audited
+canvas modes), DoublePool bounded at 3, piecewise/starfish/noof mode-local
+wins. Full comparison: `reports/animation-review.html`.
+
+### 16. Damage contract + direct-to-shm — `todo`
+The remaining big one (subsumes #5 and #15, both reviews agree). A
+`damage()` hint on the Animation trait feeding `blit_into` and
+`damage_buffer` with per-buffer generation tracking; render
+ClearThenRender/CompleteFrame modes straight into wl_shm where no canonical
+canvas is needed. Kills the ~0.5 GB/s-per-stage copy chain and the
+indicator-typing worst case. RenderPolicy groundwork is in. Effort: large —
+own session, use --debug-timing numbers first.
+
+### 17. tick() -> next-delay API — `todo`
+The pre-tick/post-tick frame_delay_us() re-read in the player is a patch;
+returning the next delay from tick() removes the trap. Small, fold into #16.
+
+### 18. Skip the gated animation timer wakeup — `todo`
+Sub-refresh modes wake a timer only to queue-and-disarm behind the frame
+callback (~60 wasted wakeups/s). Don't arm when every surface is pending.
+Small.
+
+### 19. molecule render scratch — `wontfix (borrowing; profile first)`
+ProjAtom borrows atom labels since the per-frame String clones were removed;
+caching the vec across frames fights the borrow checker. Only revisit with
+profiler evidence — molecules are small.
