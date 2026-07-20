@@ -103,9 +103,12 @@ impl Petri {
         let mut rng = rand::rng();
         let mut b = false;
 
-        self.blastcount -= 1;
-        if !doit && self.blastcount >= 0 && rng.random::<f32>() > self.anychan {
-            return true;
+        if !doit {
+            let before = self.blastcount;
+            self.blastcount -= 1;
+            if before >= 0 && rng.random::<f32>() > self.anychan {
+                return true;
+            }
         }
 
         let n;
@@ -350,39 +353,22 @@ impl Animation for Petri {
             ));
         }
 
-        let st_minlifespan = 500;
-        let st_maxlifespan = 1500;
-        let st_maxlifespeed = 0.13;
-        let st_maxdeathspeed = 0.46;
-
-        let mut diaglim = 1.0 + rng.random::<f32>();
-        diaglim = diaglim.clamp(1.0, 2.0);
-        self.diaglim = diaglim * self.orthlim;
-
-        let anychan = rng.random::<f32>().powi(15);
-        self.anychan = anychan.clamp(0.0, 1.0);
-
-        let minorchan = rng.random::<f32>();
-        self.minorchan = minorchan.clamp(0.0, 1.0);
-
-        let instantdeathchan = rng.random::<f32>().powi(8);
-        self.instantdeathchan = instantdeathchan.clamp(0.0, 1.0);
-
-        self.minlifespan = rng.random_range(0..st_minlifespan) + 1;
-        let maxlifespan = rng.random_range(0..st_maxlifespan) + self.minlifespan;
-        self.maxlifespan = maxlifespan.max(self.minlifespan);
-
-        let minlifespeed = st_maxlifespeed * rng.random::<f32>();
-        self.minlifespeed = minlifespeed.clamp(0.0, 1.0) * self.diaglim;
-
-        let maxlifespeed = ((st_maxlifespeed - minlifespeed) * rng.random::<f32>()) + minlifespeed;
-        self.maxlifespeed = maxlifespeed.clamp(minlifespeed, 1.0) * self.diaglim;
-
-        let mindeathspeed = st_maxdeathspeed * rng.random::<f32>();
-        self.mindeathspeed = mindeathspeed.clamp(0.0, 1.0) * self.diaglim;
-
-        let maxdeathspeed = ((st_maxdeathspeed - mindeathspeed) * rng.random::<f32>()) + mindeathspeed;
-        self.maxdeathspeed = maxdeathspeed.clamp(mindeathspeed, 1.0) * self.diaglim;
+        // DEVIATION from xlockmore: upstream defaults to fullrandom=True
+        // (petri.c:79), rerolling these per dish (anychan = rand^15,
+        // instantdeathchan = rand^8, random lifespans/speeds) — which lets
+        // the whole-dish instant-death reset dominate some runs. We use the
+        // fixed fullrandom=False constants (petri.c DEF_*) instead, trading
+        // upstream's run-to-run variety for consistently watchable dishes.
+        self.diaglim = 1.414 * self.orthlim;
+        self.anychan = 0.0015;
+        self.minorchan = 0.5;
+        self.instantdeathchan = 0.2;
+        self.minlifespan = 500;
+        self.maxlifespan = 1500;
+        self.minlifespeed = 0.04 * self.diaglim;
+        self.maxlifespeed = 0.13 * self.diaglim;
+        self.mindeathspeed = 0.42 * self.diaglim;
+        self.maxdeathspeed = 0.46 * self.diaglim;
 
         let mut cell_size = config.size.max(1) as usize;
         let mut arr_width = self.width as usize / cell_size;
@@ -418,5 +404,30 @@ impl Animation for Petri {
 
     fn frame_delay_us(&self) -> u64 {
         10_000 // match xlockmore default
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uses_upstream_defaults_and_forced_seed_preserves_lifespan() {
+        let config = AnimConfig {
+            width: 80,
+            height: 60,
+            size: 4,
+            ..AnimConfig::default()
+        };
+        let mut petri = Petri::new(&config);
+
+        assert_eq!(petri.anychan, 0.0015);
+        assert_eq!(petri.minorchan, 0.5);
+        assert_eq!(petri.instantdeathchan, 0.2);
+        assert_eq!((petri.minlifespan, petri.maxlifespan), (500, 1500));
+
+        let lifespan = petri.blastcount;
+        petri.randblip(true);
+        assert_eq!(petri.blastcount, lifespan);
     }
 }

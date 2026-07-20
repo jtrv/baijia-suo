@@ -11,6 +11,7 @@
 //! documented, accepted partial leak).
 
 use crate::app::AuthState;
+use crate::render::DamageRect;
 use pen::Pen;
 use std::f64::consts::PI;
 use std::sync::OnceLock;
@@ -168,13 +169,13 @@ pub struct IndicatorStyle {
 /// main `buf` — which stays BGRA (`wl_shm` Argb8888, little-endian), exactly
 /// as the animation pipeline writes it. The composite is where the one and
 /// only format conversion happens: an R↔B swizzle plus source-over blend.
-pub fn render_indicator(
+pub(crate) fn render_indicator(
     buf: &mut [u8],
     buf_w: i32,
     buf_h: i32,
     ctx: &IndicatorCtx,
     style: &IndicatorStyle,
-) -> Result<(), String> {
+) -> Result<Option<DamageRect>, String> {
     let radius_f = ctx.radius;
     let auth_state = ctx.auth_state;
 
@@ -329,5 +330,12 @@ pub fn render_indicator(
             buf[di + 3] = (sa + buf[di + 3] as u32 * inv / 255) as u8; // A
         }
     }
-    Ok(())
+    Ok(DamageRect::clipped(
+        ox,
+        oy,
+        side as i32,
+        side as i32,
+        buf_w,
+        buf_h,
+    ))
 }

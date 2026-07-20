@@ -11,6 +11,8 @@ use wayland_client::protocol::wl_shm::{self, WlShm};
 use wayland_client::protocol::wl_shm_pool::WlShmPool;
 use wayland_client::{Dispatch, QueueHandle};
 
+use crate::render::BufferContent;
+
 /// A shared memory buffer for Wayland rendering.
 pub struct PoolBuffer {
     buffer: WlBuffer,
@@ -19,6 +21,7 @@ pub struct PoolBuffer {
     size: usize,
     width: i32,
     height: i32,
+    content: BufferContent,
 }
 
 // Ensure PoolBuffer is Send + Sync
@@ -95,6 +98,7 @@ impl PoolBuffer {
             size,
             width,
             height,
+            content: BufferContent::default(),
         })
     }
 
@@ -123,6 +127,14 @@ impl PoolBuffer {
 
     pub fn set_busy(&self, busy: bool) {
         *self.busy.lock().unwrap() = busy;
+    }
+
+    pub(crate) fn content(&self) -> BufferContent {
+        self.content
+    }
+
+    pub(crate) fn set_content(&mut self, content: BufferContent) {
+        self.content = content;
     }
 }
 

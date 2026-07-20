@@ -8,6 +8,7 @@
 //! make no timing decisions of their own.
 
 use super::{primitives, AnimConfig, AnimRegistry, Animation, RenderPolicy};
+use crate::render::DamageRect;
 use std::time::{Duration, Instant};
 
 pub struct AnimationPlayer {
@@ -99,6 +100,11 @@ impl AnimationPlayer {
         self.next_wake
     }
 
+    /// The mode's current delay between ticks.
+    pub fn frame_delay(&self) -> Duration {
+        Duration::from_micros(self.animation.frame_delay_us())
+    }
+
     /// Advance the clock to `now`: run the ticks for at most one rendered
     /// frame, render into the internal buffer, and recompute `next_wake`.
     ///
@@ -120,7 +126,7 @@ impl AnimationPlayer {
     /// any output has reported its size): the clock still advances and
     /// `next_wake` still gets armed, but there's no buffer yet to render
     /// into, so the render step is skipped until a size is known.
-    pub fn advance(&mut self, now: Instant) {
+    pub fn advance(&mut self, now: Instant) -> bool {
         /// A ~60 Hz refresh period. Mode clocks faster than this can't have
         /// every state presented anyway; clocks at or above it can.
         const REFRESH_US: u64 = 16_666;
@@ -128,7 +134,7 @@ impl AnimationPlayer {
         let delay_us = self.animation.frame_delay_us();
         if delay_us == 0 {
             self.next_wake = None;
-            return;
+            return false;
         }
         // The max_fps cap stretches the wakeup cadence, never the tick
         // arithmetic: capped fast modes catch up within each longer frame,
@@ -180,6 +186,7 @@ impl AnimationPlayer {
         };
 
         let mut done: u64 = 0;
+        let mut changed = false;
         if let (Some((w, h)), Some(buf)) = (self.surface_size, self.buffer.as_mut()) {
             let budget_start = Instant::now();
             match self.animation.render_policy() {
@@ -190,6 +197,7 @@ impl AnimationPlayer {
                     for _ in 0..planned {
                         self.animation.tick();
                         self.animation.render(buf, w, h);
+                        changed = true;
                         done += 1;
                         if budget_start.elapsed() > TICK_BUDGET {
                             break;
@@ -217,6 +225,7 @@ impl AnimationPlayer {
                         }
                         self.animation.render(buf, w, h);
                         self.dirty = false;
+                        changed = true;
                     }
                 }
             }
@@ -246,13 +255,14 @@ impl AnimationPlayer {
                 self.next_wake = Some(self.last_tick.unwrap() + Duration::from_micros(sched));
             }
         }
+        changed
     }
 
     /// (Re)initializes the animation and buffer for a new surface size.
     /// A no-op if `width`x`height` matches the current size.
-    pub fn ensure_sized(&mut self, width: u32, height: u32) {
+    pub fn ensure_sized(&mut self, width: u32, height: u32) -> bool {
         if self.surface_size == Some((width, height)) {
-            return;
+            return false;
         }
 
         let mut params = self.base_params.clone();
@@ -266,6 +276,7 @@ impl AnimationPlayer {
         primitives::clear_buffer(&mut buf, self.background);
         self.buffer = Some(buf);
         self.dirty = true;
+        true
     }
 
     /// Copies the internal BGRA buffer into the raw `wl_shm` slice `dst`
@@ -278,6 +289,28 @@ impl AnimationPlayer {
         let n = (width * height * 4) as usize;
         if dst.len() >= n && buf.len() >= n {
             dst[..n].copy_from_slice(&buf[..n]);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn blit_rect_into(
+        &self,
+        dst: &mut [u8],
+        width: i32,
+        height: i32,
+        rect: DamageRect,
+    ) -> Result<(), String> {
+        let Some(src) = &self.buffer else {
+            return Ok(());
+        };
+        let needed = (width * height * 4) as usize;
+        if dst.len() < needed || src.len() < needed {
+            return Err("animation buffer is smaller than its surface".into());
+        }
+        let row_bytes = rect.width as usize * 4;
+        for y in rect.y..rect.y + rect.height {
+            let start = ((y * width + rect.x) * 4) as usize;
+            dst[start..start + row_bytes].copy_from_slice(&src[start..start + row_bytes]);
         }
         Ok(())
     }

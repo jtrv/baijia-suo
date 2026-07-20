@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Animation &amp; Rendering Review — baijia-suo</title>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11/dist/index.global.js"
+      integrity="sha384-XXN6/S6yXj8EpXnBTw3JGR9ZM+hixGxFCLYn0FHtg9cWh0ziKmAgTPEhecbCDOmj"
+      crossorigin="anonymous"
+    ></script>
+    <style>
+      .arrow { color: #94a3b8; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <header class="space-y-3">
+        <h1 class="text-3xl font-serif font-semibold">Animation &amp; Rendering Review</h1>
+        <p class="text-slate-600">baijia-suo · cross-comparison of the external review (<span class="font-mono text-sm">review.txt</span>, 2026-07-20) and the inline player design review · 64/64 tests passing</p>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800">verified / agreed</span>
+          <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">act on it</span>
+          <span class="px-2 py-1 rounded bg-red-100 text-red-800">bug / blocking</span>
+          <span class="px-2 py-1 rounded bg-slate-200 text-slate-700">defer / hygiene</span>
+        </div>
+      </header>
+
+      <!-- ============ CONVERGENT FINDINGS ============ -->
+      <section class="space-y-6">
+        <h2 class="text-xl font-serif font-semibold border-b border-slate-300 pb-2">Both reviews found independently</h2>
+
+        <article id="multi-output" class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">Mixed-size outputs reset the shared animation every frame</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-red-100 text-red-800">bug</span>
+            <span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800">both reviews</span>
+            <span class="px-2 py-1 rounded bg-red-100 text-red-800">external: HIGH</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">src/wayland.rs:193-244 · src/app.rs:131-135 · player.rs ensure_sized</p>
+          <p><strong>Problem:</strong> one player, per-output <span class="font-mono text-sm">ensure_sized()</span> — two differently sized monitors reset the animation and reallocate its canvas on every draw.</p>
+          <p><strong>Resolution:</strong> per-output players (matches xlockmore's per-screen state model); same-sized outputs may share a frame.</p>
+          <ul class="list-disc list-inside text-sm text-slate-600">
+            <li>invisible on single-monitor T480s</li>
+            <li>needs a multi-resolution regression test</li>
+          </ul>
+        </article>
+
+        <article id="render-policy" class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">clears_each_frame() is an insufficient boolean</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">act on it</span>
+            <span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800">both reviews</span>
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">external goes further</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">src/animation/mod.rs:41-64 · src/animation/player.rs:182-213</p>
+          <p><strong>Problem:</strong> one flag conflates three render modes; ~21 canvas-copying modes are treated as tick/render-paired, so catch-up copies full intermediate canvases that can never be presented.</p>
+          <p><strong>Resolution:</strong> a three-state <span class="font-mono text-sm">RenderPolicy</span> — Incremental · ClearThenRender · CompleteFrame — defaulting to Incremental, modes opted in after audit.</p>
+          <ul class="list-disc list-inside text-sm text-slate-600">
+            <li>inline review: flag is dual-role, comment-enforced</li>
+            <li>external: ~40% of canvas copies eliminable</li>
+            <li>candidates: helix, xrayswarm, squiral, binaryring…</li>
+            <li>moire copies dirty rows — still needs pairing</li>
+          </ul>
+        </article>
+
+        <article id="copy-chain" class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">Every presented frame pays a redundant full-frame copy chain</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">act on it</span>
+            <span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800">both reviews</span>
+            <span class="px-2 py-1 rounded bg-slate-200 text-slate-700">complementary fixes</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">player.rs blit_into · app.rs render_to_surface · wayland.rs damage_buffer</p>
+          <div class="rounded-lg border border-slate-200 bg-white p-4 overflow-x-auto">
+            <div class="flex items-center gap-2 text-xs whitespace-nowrap">
+              <div class="border-2 border-slate-300 rounded px-3 py-2">mode canvas<br/><span class="text-slate-500">(knows its dirty rows)</span></div>
+              <span class="text-red-600 font-bold">→ full copy</span>
+              <div class="border-2 border-slate-300 rounded px-3 py-2">player buffer</div>
+              <span class="text-red-600 font-bold">→ full 8.3&nbsp;MB blit</span>
+              <div class="border-2 border-slate-300 rounded px-3 py-2">wl_shm buffer</div>
+              <span class="text-red-600 font-bold">→ full damage</span>
+              <div class="border-2 border-slate-300 rounded px-3 py-2">compositor</div>
+            </div>
+            <p class="text-xs uppercase tracking-wider text-slate-500 mt-3">dirty knowledge exists on the left, dies at the trait boundary, everything right of it pays full price</p>
+          </div>
+          <p><strong>Problem:</strong> ~0.5&nbsp;GB/s per copy stage at 1080p60 (4x on scale-2 4K), even for frames where 3 pixels or only the indicator changed.</p>
+          <p><strong>Resolution:</strong> external: render eligible policies directly into wl_shm; inline: a damage contract on the Animation trait feeding blit and <span class="font-mono text-sm">damage_buffer</span> with buffer-generation tracking — do both, they compose.</p>
+          <ul class="list-disc list-inside text-sm text-slate-600">
+            <li>indicator-only typing frames worst case</li>
+            <li>subsumes backlog #5, #15</li>
+          </ul>
+        </article>
+
+        <article id="measure" class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">Every cost claim is reasoned, none is measured</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">act before structural work</span>
+            <span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800">both reviews</span>
+          </div>
+          <p><strong>Problem:</strong> no per-frame timing, no benchmarks, no deterministic parity tests; petri's catch-up spiral was found by eyeball.</p>
+          <p><strong>Resolution:</strong> a <span class="font-mono text-sm">--debug-timing</span> flag (tick/render/blit/commit micros) plus the external review's missing-test list: lightning state-machine test, multi-resolution player test, 1080p/4K profiles.</p>
+        </article>
+      </section>
+
+      <!-- ============ EXTERNAL ONLY ============ -->
+      <section class="space-y-6">
+        <h2 class="text-xl font-serif font-semibold border-b border-slate-300 pb-2">Unique to review.txt — verified against sources today</h2>
+
+        <article id="lightning-stage4" class="bg-gradient-to-br from-slate-900 to-slate-800 text-stone-100 rounded-xl p-6 space-y-3 shadow-md">
+          <h3 class="text-lg font-semibold">Lightning invents a ~1s black pause upstream doesn't have</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-red-100 text-red-800">bug — verified</span>
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">explains user report</span>
+            <span class="px-2 py-1 rounded bg-red-100 text-red-800">corrects inline review</span>
+          </div>
+          <p class="font-mono text-sm text-slate-300">lightning.c:593-598 · src/animation/modes/lightning.rs:517-523</p>
+          <p><strong>Problem:</strong> upstream's stage 4 calls <span class="font-mono text-sm">init_lightning()</span> immediately every invocation (its busyLoop is vestigial); the port waits <span class="font-mono text-sm">busy_loop &gt; 100</span> — an extra second of black between storms.</p>
+          <p><strong>Resolution:</strong> reinitialize immediately in stage 4; this is the remaining "lightning feels slow".</p>
+          <ul class="list-disc list-inside text-sm text-slate-300">
+            <li>inline review wrongly called the pause faithful</li>
+            <li>smallest fix, largest user-visible payoff</li>
+          </ul>
+        </article>
+
+        <article id="multistrike" class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">Multi-strike probabilities miss upstream's boundary holes</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">fidelity — verified</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">lightning.c:145-162 · lightning.rs:107-118</p>
+          <p><strong>Problem:</strong> upstream's odd conditions drop values 50 and 75 through to four bolts (50/24/16/10%); the port absorbs them into two- and three-bolt cases (50/25/17/8%).</p>
+          <p><strong>Resolution:</strong> reproduce the original boundary conditions, quirk and all.</p>
+        </article>
+
+        <article id="hygiene" class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">Toolchain hygiene: MSRV violation, fmt, clippy</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-red-100 text-red-800">MSRV — verified</span>
+            <span class="px-2 py-1 rounded bg-slate-200 text-slate-700">fmt — verified</span>
+            <span class="px-2 py-1 rounded bg-slate-200 text-slate-700">clippy — reported</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">Cargo.toml:8 rust-version=1.75 · wayland.rs:386 is_none_or (needs 1.82) · wayland.rs:169 fmt · molecule.rs:796, app.rs:479 clippy</p>
+          <p><strong>Problem:</strong> the battery-poll code uses <span class="font-mono text-sm">Option::is_none_or</span>, breaking the declared 1.75 minimum; one unformatted block and two clippy lints ride along.</p>
+          <p><strong>Resolution:</strong> replace with <span class="font-mono text-sm">map_or</span> (or raise MSRV + CI-test it), run fmt, fix both lints.</p>
+        </article>
+
+        <article id="pool" class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">DoublePool is not actually bounded to two buffers</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">act on it</span>
+            <span class="px-2 py-1 rounded bg-slate-200 text-slate-700">external only</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">src/render/pool.rs:138-183</p>
+          <p><strong>Problem:</strong> when no free buffer matches, <span class="font-mono text-sm">get_buffer()</span> allocates another memfd — frame callbacks can outrun wl_buffer releases, so the pool can grow (33&nbsp;MB per 4K buffer).</p>
+          <p><strong>Resolution:</strong> cap at 2–3 buffers; defer presentation when all busy, redraw on the release event.</p>
+        </article>
+
+        <article id="mode-local" class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">Mode-local leftovers the earlier sweeps missed</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">small wins</span>
+            <span class="px-2 py-1 rounded bg-slate-200 text-slate-700">external only</span>
+          </div>
+          <ul class="list-disc list-inside text-sm text-slate-700 space-y-1">
+            <li><span class="font-mono">piecewise.rs:796</span> — per-step sin/cos (already backlog #7; external ranks it top mode-local win)</li>
+            <li><span class="font-mono">starfish.rs:126,427</span> — spline Vec allocated per 2ms tick</li>
+            <li><span class="font-mono">noof.rs:224</span> — per-tick reset_indices Vec for fixed-size array</li>
+            <li><span class="font-mono">molecule.rs:685</span> — projected/draw-list Vecs + sort per frame; sort mainly serves labels</li>
+            <li><span class="font-mono">crystal.rs:558 · wormhole.rs:349</span> — clears inside render() duplicating the player's clear (semantics differ: black vs configured background — needs RenderPolicy to remove safely)</li>
+          </ul>
+        </article>
+
+        <article id="hidpi" class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">HiDPI renders scale&sup2; animation pixels</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-slate-200 text-slate-700">defer — no HiDPI hardware</span>
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">external: MEDIUM</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">wayland.rs:226-244 · backlog #10</p>
+          <p><strong>Problem:</strong> scale-2 output does 4x the animation pixel work of its logical size.</p>
+          <p><strong>Resolution:</strong> logical-resolution animation layer via wp_viewporter, indicator at native res; agreed-deferred until a HiDPI display exists.</p>
+        </article>
+      </section>
+
+      <!-- ============ INLINE ONLY ============ -->
+      <section class="space-y-6">
+        <h2 class="text-xl font-serif font-semibold border-b border-slate-300 pb-2">Unique to the inline review</h2>
+
+        <article class="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-sm">
+          <h3 class="text-lg font-semibold">Three smaller design debts</h3>
+          <div class="flex gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-slate-200 text-slate-700">minor</span>
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800">fold into RenderPolicy work</span>
+          </div>
+          <ul class="list-disc list-inside text-sm text-slate-700 space-y-1">
+            <li><strong>Delay resync patch</strong> — pre-tick read + post-tick re-read of <span class="font-mono">frame_delay_us()</span>; cleaner API is <span class="font-mono">tick() -&gt; next_delay</span></li>
+            <li><strong>Double wakeup per fast-mode frame</strong> — timer fires, gets gated, callback draws; ~60 wasted wakeups/s</li>
+            <li><strong>Four hand-rolled dirty patterns</strong> — petri/polyominoes/vermiculate/moire each reinvented ~30 lines; a shared helper falls out of the damage contract</li>
+          </ul>
+        </article>
+      </section>
+
+      <!-- ============ SUMMARY ============ -->
+      <section>
+        <article class="bg-white rounded-xl border-2 border-indigo-200 p-6 space-y-4 shadow-md">
+          <h2 class="text-xl font-serif font-semibold">Verdict &amp; merged order</h2>
+          <p class="text-slate-700">The reviews agree on the architecture-level frontier (<a class="text-indigo-700 underline" href="#multi-output">output ownership</a>, <a class="text-indigo-700 underline" href="#render-policy">RenderPolicy</a>, <a class="text-indigo-700 underline" href="#copy-chain">copy chain</a>, <a class="text-indigo-700 underline" href="#measure">measurement first</a>). review.txt additionally caught two verified lightning fidelity bugs — one being the reported slowness — and an MSRV break introduced by recent work. Both reviews independently rejected a GPU renderer.</p>
+          <table class="w-full text-sm border-collapse">
+            <thead><tr class="text-left border-b border-slate-300 text-slate-500">
+              <th class="py-1 pr-3">#</th><th class="py-1 pr-3">Action</th><th class="py-1 pr-3">Size</th><th class="py-1">Source</th>
+            </tr></thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr><td class="py-1 pr-3">1</td><td class="pr-3"><a class="text-indigo-700" href="#lightning-stage4">Lightning stage-4 immediate re-init</a> + <a class="text-indigo-700" href="#multistrike">multi-strike boundaries</a> + state test</td><td class="pr-3">small</td><td>external, verified</td></tr>
+              <tr><td class="py-1 pr-3">2</td><td class="pr-3"><a class="text-indigo-700" href="#hygiene">MSRV / fmt / clippy hygiene</a></td><td class="pr-3">trivial</td><td>external, verified</td></tr>
+              <tr><td class="py-1 pr-3">3</td><td class="pr-3"><a class="text-indigo-700" href="#measure">--debug-timing instrumentation</a></td><td class="pr-3">small</td><td>both</td></tr>
+              <tr><td class="py-1 pr-3">4</td><td class="pr-3"><a class="text-indigo-700" href="#multi-output">Per-output player ownership</a> + regression test</td><td class="pr-3">medium</td><td>both</td></tr>
+              <tr><td class="py-1 pr-3">5</td><td class="pr-3"><a class="text-indigo-700" href="#render-policy">RenderPolicy enum</a>, audited classification, CompleteFrame batching</td><td class="pr-3">medium</td><td>both</td></tr>
+              <tr><td class="py-1 pr-3">6</td><td class="pr-3"><a class="text-indigo-700" href="#copy-chain">Direct-to-shm + damage contract</a>, <a class="text-indigo-700" href="#pool">bound DoublePool</a></td><td class="pr-3">large</td><td>both + external</td></tr>
+              <tr><td class="py-1 pr-3">7</td><td class="pr-3"><a class="text-indigo-700" href="#mode-local">Mode-local: piecewise, starfish, noof, molecule</a></td><td class="pr-3">small each</td><td>external</td></tr>
+              <tr><td class="py-1 pr-3">8</td><td class="pr-3"><a class="text-indigo-700" href="#hidpi">HiDPI logical-res layer</a></td><td class="pr-3">large</td><td>deferred by both</td></tr>
+            </tbody>
+          </table>
+          <p class="text-sm text-slate-500">Steps 1–3 are an afternoon; 4–6 are the structural block and should follow the instrumentation, not precede it.</p>
+        </article>
+      </section>
+
+    </main>
+  </body>
+</html>

@@ -12,10 +12,16 @@
 //! job of driving one animation's frame clock.
 
 use super::{AnimConfig, AnimRegistry, AnimationPlayer};
+use crate::render::DamageRect;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+static NEXT_PLAYLIST_ID: AtomicU64 = AtomicU64::new(1);
+
 pub struct Playlist {
+    id: u64,
+    generation: u64,
     /// Valid mode names, length >= 1; reshuffled in place on wrap.
     order: Vec<String>,
     idx: usize,
@@ -62,6 +68,8 @@ impl Playlist {
         // order[0] is registered (filtered above), so this is Some.
         let current = AnimationPlayer::new(&order[0], params.clone(), background)?;
         Some(Playlist {
+            id: NEXT_PLAYLIST_ID.fetch_add(1, Ordering::Relaxed),
+            generation: 0,
             order,
             idx: 0,
             cycle,
@@ -79,7 +87,7 @@ impl Playlist {
 
     /// Advance to the next mode: reshuffle on wrap (avoiding an immediate
     /// repeat), rebuild the player, and restore the current surface size.
-    fn switch_to_next(&mut self) {
+    fn switch_to_next(&mut self) -> bool {
         use rand::seq::SliceRandom;
         self.idx += 1;
         if self.idx >= self.order.len() {
@@ -97,32 +105,54 @@ impl Playlist {
             if let Some((w, h)) = self.last_size {
                 self.current.ensure_sized(w, h);
             }
+            return true;
         }
         // On the unexpected None (mode was valid at startup) keep the current
         // player rather than blanking the screen.
+        false
     }
 
     pub fn advance(&mut self, now: Instant) {
+        let mut changed = false;
         if self.multi() {
             match self.switch_at {
                 None => self.switch_at = Some(now + self.cycle),
                 Some(at) if now >= at => {
-                    self.switch_to_next();
+                    changed = self.switch_to_next();
                     self.switch_at = Some(now + self.cycle);
                 }
                 Some(_) => {}
             }
         }
-        self.current.advance(now);
+        changed |= self.current.advance(now);
+        if changed {
+            self.generation = self.generation.wrapping_add(1);
+        }
     }
 
     pub fn ensure_sized(&mut self, width: u32, height: u32) {
         self.last_size = Some((width, height));
-        self.current.ensure_sized(width, height);
+        if self.current.ensure_sized(width, height) {
+            self.generation = self.generation.wrapping_add(1);
+        }
     }
 
     pub fn blit_into(&self, dst: &mut [u8], width: i32, height: i32) -> Result<(), String> {
         self.current.blit_into(dst, width, height)
+    }
+
+    pub(crate) fn blit_rect_into(
+        &self,
+        dst: &mut [u8],
+        width: i32,
+        height: i32,
+        rect: DamageRect,
+    ) -> Result<(), String> {
+        self.current.blit_rect_into(dst, width, height, rect)
+    }
+
+    pub fn frame_id(&self) -> (u64, u64) {
+        (self.id, self.generation)
     }
 
     /// The earlier of the current mode's next frame and the next mode switch,

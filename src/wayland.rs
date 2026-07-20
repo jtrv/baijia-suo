@@ -20,12 +20,42 @@ use wayland_protocols::ext::session_lock::v1::client::{
 
 use crate::app::App;
 use crate::render::pool::DoublePool;
+use crate::render::DamageRect;
 
 /// Set to true by SIGTERM/SIGINT; checked in the event loop.
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn handle_shutdown_signal(_: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+fn pollable_animation_wake(any_surface_ready: bool, wake: Option<Instant>) -> Option<Instant> {
+    any_surface_ready.then_some(wake).flatten()
+}
+
+fn callback_should_draw(queued: bool, wake: Option<Instant>, now: Instant) -> bool {
+    queued || wake.is_some_and(|deadline| now >= deadline)
+}
+
+pub(crate) fn submitted_damage(
+    damage: Option<DamageRect>,
+    same_generation: bool,
+    last_committed_indicator: Option<DamageRect>,
+) -> Option<DamageRect> {
+    match (damage, same_generation) {
+        // Partial update: the compositor compares the attached buffer
+        // against the last committed one — a different buffer under pool
+        // rotation — so the previously committed indicator must be
+        // unioned into the declared region.
+        (Some(d), true) => Some(last_committed_indicator.map_or(d, |last| d.union(last))),
+        // Base changed: the damage is already full-frame.
+        (Some(d), false) => Some(d),
+        // This buffer is unchanged, but the last committed frame may still
+        // show an indicator this buffer never held (indicator hidden while
+        // the other buffer was on screen): commit once to erase it. None
+        // only when the surface, too, has nothing to erase.
+        (None, _) => last_committed_indicator,
+    }
 }
 
 pub struct OutputInfo {
@@ -38,6 +68,9 @@ pub struct OutputInfo {
     pub height: u32,
     /// Integer output scale (wl_output `scale` event); 1 unless HiDPI.
     pub scale: i32,
+    /// Indicator pixels in the surface's last committed buffer. This is
+    /// per-surface because the SHM pool rotates between buffer identities.
+    pub last_committed_indicator: Option<DamageRect>,
     /// A committed frame's wl_callback hasn't fired yet. While true we
     /// don't commit again to this surface: the compositor paces us, and
     /// when the output is off/occluded the callback simply never comes —
@@ -95,7 +128,10 @@ pub struct WaylandState {
     indicator_was_visible: bool,
 
     // --debug-timing accumulators (untouched unless the flag is set)
-    timing_frames: u32,
+    timing_draws: u32,
+    timing_presentations: u32,
+    timing_skipped_presentations: u32,
+    timing_gated_animation_wakeups: u32,
     timing_advance_us: u64,
     timing_present_us: u64,
     timing_report_at: Option<Instant>,
@@ -128,7 +164,10 @@ impl WaylandState {
             anim_wake_at: None,
             pam_msg_was_live: false,
             indicator_was_visible: false,
-            timing_frames: 0,
+            timing_draws: 0,
+            timing_presentations: 0,
+            timing_skipped_presentations: 0,
+            timing_gated_animation_wakeups: 0,
             timing_advance_us: 0,
             timing_present_us: 0,
             timing_report_at: None,
@@ -158,6 +197,30 @@ impl WaylandState {
         let lock_surface = lock.get_lock_surface(&wl_surface, &info.output, qh, ());
         info.wl_surface = Some(wl_surface);
         info.surface = Some(lock_surface);
+        info.last_committed_indicator = None;
+    }
+
+    fn prune_animation_playlists(&mut self) {
+        let active: Vec<_> = self
+            .outputs
+            .values()
+            .filter(|info| info.configured && info.width > 0 && info.height > 0)
+            .map(|info| {
+                let scale = info.scale.max(1) as u32;
+                (info.width * scale, info.height * scale)
+            })
+            .collect();
+        self.app.retain_animation_sizes(&active);
+    }
+
+    fn has_ready_surface(&self) -> bool {
+        self.outputs.values().any(|info| {
+            info.configured
+                && !info.frame_pending
+                && info.wl_surface.is_some()
+                && info.width > 0
+                && info.height > 0
+        })
     }
 
     /// Render every configured output and commit its lock surface.
@@ -174,33 +237,22 @@ impl WaylandState {
         let qh = self.qh.clone();
 
         // Frame-callback pacing: if every configured surface still owes us
-        // a callback, drawing now would outpace the compositor. Queue one
-        // redraw and disarm the animation clock — the next callback (which
-        // never comes while the display is off) resumes everything. The
-        // player re-anchors across the gap.
-        let any_ready = self.outputs.values().any(|i| {
-            i.configured
-                && !i.frame_pending
-                && i.wl_surface.is_some()
-                && i.width > 0
-                && i.height > 0
-        });
-        if !any_ready {
+        // a callback, drawing now would outpace the compositor. Preserve the
+        // animation deadline for the callback handler, but do not poll it
+        // while no surface can accept a frame.
+        if !self.has_ready_surface() {
             if self
                 .outputs
                 .values()
                 .any(|i| i.configured && i.wl_surface.is_some())
             {
                 self.present_queued = true;
-                self.anim_wake_at = None;
             }
             return;
         }
 
         let t_start = self.app.config.debug_timing.then(Instant::now);
 
-        // render_to_surface sizes the player per output; the first frame
-        // after a resize may render blank, which the next tick corrects.
         // In low-power mode the animation clock stops entirely — no ticks,
         // no wakeups — until the battery check re-enables it.
         if self.app.low_power {
@@ -213,6 +265,9 @@ impl WaylandState {
         let t_advanced = t_start.map(|_| Instant::now());
 
         let ids: Vec<u32> = self.outputs.keys().copied().collect();
+        let mut presentations = 0;
+        let mut skipped_presentations = 0;
+        let mut present_us = 0;
         for id in ids {
             let (lw, lh, scale, wl_surface) = {
                 let info = match self.outputs.get(&id) {
@@ -245,6 +300,7 @@ impl WaylandState {
             let (pw, ph) = (lw * scale, lh * scale);
 
             let info = self.outputs.get_mut(&id).unwrap();
+            let last_committed_indicator = info.last_committed_indicator;
             if info.pool.is_none() {
                 info.pool = Some(DoublePool::new());
             }
@@ -256,39 +312,85 @@ impl WaylandState {
                     continue;
                 }
             };
+            let presentation_start = self.app.config.debug_timing.then(Instant::now);
 
-            if let Err(e) = self.app.render_to_surface(buf.data_mut(), pw, ph, scale) {
-                log::error!("draw: render failed: {}", e);
-            }
+            let previous = buf.content();
+            // A failed render may have touched pixels before returning. Mark
+            // the cache unknown first so a later retry necessarily repaints.
+            buf.set_content(Default::default());
+            let outcome =
+                match self
+                    .app
+                    .render_to_surface_cached(buf.data_mut(), pw, ph, scale, previous)
+                {
+                    Ok(outcome) => outcome,
+                    Err(e) => {
+                        log::error!("draw: render failed: {}", e);
+                        continue;
+                    }
+                };
+            buf.set_content(outcome.content);
+            let same_generation = previous.base == outcome.content.base;
+            let Some(damage) =
+                submitted_damage(outcome.damage, same_generation, last_committed_indicator)
+            else {
+                skipped_presentations += 1;
+                continue;
+            };
 
             // Request the frame callback before the commit that latches it;
             // its Done event clears frame_pending for this output.
             wl_surface.frame(&qh, id);
             wl_surface.set_buffer_scale(scale);
             wl_surface.attach(Some(buf.buffer()), 0, 0);
-            wl_surface.damage_buffer(0, 0, pw, ph);
+            wl_surface.damage_buffer(damage.x, damage.y, damage.width, damage.height);
             wl_surface.commit();
             buf.set_busy(true);
-            self.outputs.get_mut(&id).unwrap().frame_pending = true;
+            let info = self.outputs.get_mut(&id).unwrap();
+            info.frame_pending = true;
+            info.last_committed_indicator = outcome.content.indicator;
+            presentations += 1;
+            if let Some(start) = presentation_start {
+                present_us += start.elapsed().as_micros() as u64;
+            }
         }
+
+        // render_to_surface may have created a playlist after the advance
+        // pass, so resync the event-loop deadline after all outputs render.
+        if !self.app.low_power {
+            self.anim_wake_at = self.app.next_anim_wake();
+        }
+        let gated_animation_wakeup = self.anim_wake_at.is_some() && !self.has_ready_surface();
 
         // --debug-timing: aggregate advance vs present cost, report ~1/s.
         if let (Some(start), Some(advanced)) = (t_start, t_advanced) {
             let end = Instant::now();
-            self.timing_frames += 1;
+            self.timing_draws += 1;
+            self.timing_presentations += presentations;
+            self.timing_skipped_presentations += skipped_presentations;
+            self.timing_gated_animation_wakeups += u32::from(gated_animation_wakeup);
             self.timing_advance_us += advanced.duration_since(start).as_micros() as u64;
-            self.timing_present_us += end.duration_since(advanced).as_micros() as u64;
+            self.timing_present_us += present_us;
             let due = self.timing_report_at.is_none_or(|t| end >= t);
             if due {
-                if self.timing_frames > 0 && self.timing_report_at.is_some() {
+                if (self.timing_presentations > 0
+                    || self.timing_skipped_presentations > 0
+                    || self.timing_gated_animation_wakeups > 0)
+                    && self.timing_report_at.is_some()
+                {
                     log::info!(
-                        "timing: {} frames/s, advance avg {}us, present avg {}us",
-                        self.timing_frames,
-                        self.timing_advance_us / self.timing_frames as u64,
-                        self.timing_present_us / self.timing_frames as u64,
+                        "timing: {} presentations/s, {} skipped, {} animation wakeups gated, advance avg {}us/draw, client render+commit avg {}us/presentation",
+                        self.timing_presentations,
+                        self.timing_skipped_presentations,
+                        self.timing_gated_animation_wakeups,
+                        self.timing_advance_us / self.timing_draws as u64,
+                        self.timing_present_us / self.timing_presentations.max(1) as u64,
                     );
                 }
-                self.timing_frames = 0;
+                self.timing_draws = 0;
+                self.timing_presentations = 0;
+                self.timing_skipped_presentations = 0;
+                self.timing_gated_animation_wakeups = 0;
                 self.timing_advance_us = 0;
                 self.timing_present_us = 0;
                 self.timing_report_at = Some(end + Duration::from_secs(1));
@@ -307,12 +409,13 @@ impl WaylandState {
             .app
             .indicator_active(now)
             .then(|| now + Duration::from_millis(crate::render::indicator::FRAME_MS));
+        let animation_timer = pollable_animation_wake(self.has_ready_surface(), self.anim_wake_at);
 
         for t in [
             self.repeat_next,
             self.auth_clear_at,
             self.password_clear_at,
-            self.anim_wake_at,
+            animation_timer,
             self.battery_check_at,
             indicator_timer,
             self.app.pam_message_deadline(now),
@@ -382,10 +485,8 @@ impl WaylandState {
         // Animation frame: draw() re-ticks the clock and re-syncs
         // anim_wake_at internally, so there's nothing to do here beyond
         // deciding whether the deadline has passed.
-        if let Some(t) = self.anim_wake_at {
-            if now >= t {
-                needs_draw = true;
-            }
+        if self.has_ready_surface() && self.anim_wake_at.is_some_and(|t| now >= t) {
+            needs_draw = true;
         }
 
         if self.app.auth_settled(now) {
@@ -498,6 +599,7 @@ impl Dispatch<WlRegistry, ()> for WaylandState {
                             width: 0,
                             height: 0,
                             scale: 1,
+                            last_committed_indicator: None,
                             frame_pending: false,
                         },
                     );
@@ -522,6 +624,7 @@ impl Dispatch<WlRegistry, ()> for WaylandState {
                     if let Some(s) = info.wl_surface.take() {
                         s.destroy();
                     }
+                    state.prune_animation_playlists();
                 }
                 if let Some(seat) = state.seats.remove(&name) {
                     let sid = seat.id();
@@ -618,6 +721,8 @@ impl Dispatch<WlOutput, ()> for WaylandState {
             if let Some(info) = state.outputs.values_mut().find(|i| i.output.id() == oid) {
                 info.scale = factor.max(1);
             }
+            // A scale change moves this output to a new physical size.
+            state.prune_animation_playlists();
         }
     }
 }
@@ -844,6 +949,7 @@ impl Dispatch<ExtSessionLockSurfaceV1, ()> for WaylandState {
                     info.configured = true;
                     info.width = width;
                     info.height = height;
+                    info.last_committed_indicator = None;
                     // The protocol requires a commit after ack_configure; a
                     // callback owed for the pre-configure buffer must not
                     // gate it (and may never fire across a mode switch).
@@ -851,6 +957,9 @@ impl Dispatch<ExtSessionLockSurfaceV1, ()> for WaylandState {
                 }
             }
             log::info!("lock surface configured: {}x{}", width, height);
+            // Sizes only change on configure/scale/removal events, so prune
+            // here rather than in the 60fps draw path.
+            state.prune_animation_playlists();
             // draw() sizes and ticks the animation player itself, arming
             // anim_wake_at as a side effect — no separate first-configure
             // case needed.
@@ -887,7 +996,7 @@ impl Dispatch<WlCallback, u32> for WaylandState {
             if let Some(info) = state.outputs.get_mut(output_id) {
                 info.frame_pending = false;
             }
-            if state.present_queued {
+            if callback_should_draw(state.present_queued, state.anim_wake_at, Instant::now()) {
                 state.present_queued = false;
                 state.draw();
             }
@@ -976,4 +1085,60 @@ pub fn run_wayland(app: App) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn animation_deadline_waits_for_a_ready_surface() {
+        let wake = Instant::now();
+        assert_eq!(pollable_animation_wake(false, Some(wake)), None);
+        assert_eq!(pollable_animation_wake(true, Some(wake)), Some(wake));
+    }
+
+    #[test]
+    fn frame_callback_resumes_queued_or_due_work() {
+        let now = Instant::now();
+        let future = now + Duration::from_secs(1);
+        assert!(callback_should_draw(true, Some(future), now));
+        assert!(callback_should_draw(false, Some(now), now));
+        assert!(!callback_should_draw(false, Some(future), now));
+        assert!(!callback_should_draw(false, None, now));
+    }
+
+    #[test]
+    fn submitted_damage_covers_the_last_committed_rotated_buffer() {
+        let current = DamageRect {
+            x: 20,
+            y: 20,
+            width: 10,
+            height: 10,
+        };
+        let last_committed = DamageRect {
+            x: 60,
+            y: 20,
+            width: 30,
+            height: 10,
+        };
+
+        assert_eq!(
+            submitted_damage(Some(current), true, Some(last_committed)),
+            Some(current.union(last_committed))
+        );
+        assert_eq!(
+            submitted_damage(Some(current), false, Some(last_committed)),
+            Some(current),
+            "full-generation damage already covers the prior surface"
+        );
+        // The indicator hid while the OTHER buffer was on screen: this
+        // buffer has nothing to redraw, but the surface still shows the
+        // indicator — one commit must erase it.
+        assert_eq!(
+            submitted_damage(None, true, Some(last_committed)),
+            Some(last_committed)
+        );
+        assert_eq!(submitted_damage(None, true, None), None);
+    }
 }

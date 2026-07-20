@@ -5,7 +5,7 @@ edition = "2021"
 authors = []
 description = "A secure Wayland screen locker with xlockmore animation support"
 license = "MIT"
-rust-version = "1.82"
+rust-version = "1.86"
 
 [dependencies]
 wayland-client = "0.31"
@@ -33,7 +33,12 @@ serde = { version = "1", features = ["derive"] }
 rpassword = "7"
 
 [dev-dependencies]
+criterion = "0.8.2"
 tempfile = "3"
+
+[[bench]]
+name = "animations"
+harness = false
 
 [build-dependencies]
 # Build-only (not in the shipped binary): generate the fish completion.

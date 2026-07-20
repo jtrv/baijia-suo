@@ -69,6 +69,8 @@ pub fn run() {
 
     let level = if args.debug {
         log::LevelFilter::Debug
+    } else if args.debug_timing {
+        log::LevelFilter::Info
     } else {
         log::LevelFilter::Warn
     };

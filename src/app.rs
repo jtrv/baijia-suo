@@ -11,6 +11,7 @@ use crate::render::indicator::{
     IndicatorCtx, IndicatorStyle, COMPLETE_FADE_MS, KEYSTROKE_SETTLE_MS, NUM_SEGMENTS,
     VERIFY_ENVELOPE_MS,
 };
+use crate::render::{BaseFrame, BufferContent, DamageRect, RenderOutcome};
 use crate::secure::SecureBuffer;
 use log::{error, info, warn};
 use std::time::{Duration, Instant};
@@ -50,9 +51,8 @@ pub(crate) struct App {
     pub low_power: bool,
     pub keyboard: crate::input::keyboard::KeyboardHandler,
     /// One playlist per physical output size, created lazily on the first
-    /// frame for that size. A single shared player reset itself on every
-    /// frame when outputs had different dimensions; per-size players match
-    /// xlockmore's per-screen state model.
+    /// frame for that size. Equal-sized outputs intentionally share it; this
+    /// avoids duplicate simulation while preventing mixed-size reset thrash.
     pub playlists: std::collections::HashMap<(u32, u32), Playlist>,
     /// False once modes were configured but none were valid — stops the
     /// lazy creation from retrying (and re-warning) every frame.
@@ -122,6 +122,10 @@ impl App {
                 ) {
                     Some(mut p) => {
                         p.ensure_sized(width, height);
+                        // A playlist created during render missed the draw
+                        // cycle's advance pass. Produce its first frame and
+                        // arm its clock before it is blitted.
+                        p.advance(Instant::now());
                         Some(e.insert(p))
                     }
                     None => {
@@ -148,17 +152,23 @@ impl App {
         self.playlists.values().filter_map(|p| p.next_wake()).min()
     }
 
+    /// Drop animation state for physical sizes no configured output uses.
+    pub fn retain_animation_sizes(&mut self, active: &[(u32, u32)]) {
+        self.playlists.retain(|size, _| active.contains(size));
+    }
+
     /// Render the current state into the raw `wl_shm` BGRA buffer `buf`
     /// (stride `width * 4`, no padding).
     ///
-    /// Assumes `AnimationPlayer::advance` has already been called for this
-    /// frame (see `WaylandState::draw`, which ticks the clock once per
-    /// draw cycle, then calls this once per output).
+    /// Existing players are advanced by `WaylandState::draw`; a player first
+    /// discovered here advances itself once so its initial frame and wakeup
+    /// are ready immediately.
     /// `width`/`height` are the physical buffer dimensions; `scale` is the
     /// output's integer buffer scale (1 on a standard display, 2+ on HiDPI).
     /// The background fills the buffer resolution-independently; only the
     /// indicator's pixel geometry needs `scale` so it keeps its logical size
     /// while rendering crisp at device resolution.
+    #[cfg(test)]
     pub fn render_to_surface(
         &mut self,
         buf: &mut [u8],
@@ -166,26 +176,64 @@ impl App {
         height: i32,
         scale: i32,
     ) -> Result<(), String> {
-        // The animation blit covers the whole buffer (the playlist for this
-        // size matches its dimensions by construction); the solid background
-        // is only filled when no blit happened — animation disabled, low
-        // power, or the first-call discovery that no modes are valid.
-        let mut animated = false;
+        self.render_to_surface_cached(buf, width, height, scale, BufferContent::default())?;
+        Ok(())
+    }
+
+    /// Render using the pixels already held by one reusable SHM buffer.
+    /// Returns the new content identity and the smallest region that changed.
+    pub(crate) fn render_to_surface_cached(
+        &mut self,
+        buf: &mut [u8],
+        width: i32,
+        height: i32,
+        scale: i32,
+        previous: BufferContent,
+    ) -> Result<RenderOutcome, String> {
+        if width <= 0 || height <= 0 || scale <= 0 {
+            return Err("invalid render dimensions".into());
+        }
+        let needed = width
+            .checked_mul(height)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .map(|bytes| bytes as usize)
+            .ok_or("render dimensions overflow")?;
+        if buf.len() < needed {
+            return Err("render buffer is smaller than its surface".into());
+        }
+
+        let full = DamageRect::full(width, height);
+        let mut base = BaseFrame::Solid;
         if !self.low_power {
             if let Some(player) = self.playlist_for(width as u32, height as u32) {
-                player.blit_into(buf, width, height)?;
-                animated = true;
+                let (playlist, generation) = player.frame_id();
+                base = BaseFrame::Animation {
+                    playlist,
+                    generation,
+                };
+                if previous.base != Some(base) {
+                    player.blit_into(buf, width, height)?;
+                } else if let Some(rect) = previous.indicator {
+                    player.blit_rect_into(buf, width, height, rect)?;
+                }
             }
         }
-        if !animated {
+        if base == BaseFrame::Solid {
             let bg = self.config.background_color;
-            crate::render::background::render_solid_color(buf, (bg.r, bg.g, bg.b, bg.a))?;
+            let color = (bg.r, bg.g, bg.b, bg.a);
+            if previous.base != Some(base) {
+                crate::render::background::render_solid_color(buf, color)?;
+            } else if let Some(rect) = previous.indicator {
+                crate::render::background::render_solid_color_rect(
+                    buf, width, height, color, rect,
+                )?;
+            }
         }
 
         let now = Instant::now();
         // Draw the indicator only while it should be visible; when idle long
         // enough it hides entirely, leaving just the background.
-        if self.indicator_visible(now) {
+        let indicator = if self.indicator_visible(now) {
             let ind = &self.config.indicator;
             let radius = ind.radius * scale as f64;
             let ctx = IndicatorCtx {
@@ -209,10 +257,27 @@ impl App {
                 color: ind.color.map(|c| (c.r, c.g, c.b)),
                 caps_lock: self.keyboard.caps_lock,
             };
-            crate::render::indicator::render_indicator(buf, width, height, &ctx, &style)?;
-        }
+            crate::render::indicator::render_indicator(buf, width, height, &ctx, &style)?
+        } else {
+            None
+        };
 
-        Ok(())
+        let damage = if previous.base != Some(base) {
+            Some(full)
+        } else {
+            match (previous.indicator, indicator) {
+                (Some(old), Some(new)) => Some(old.union(new)),
+                (Some(rect), None) | (None, Some(rect)) => Some(rect),
+                (None, None) => None,
+            }
+        };
+        Ok(RenderOutcome {
+            content: BufferContent {
+                base: Some(base),
+                indicator,
+            },
+            damage,
+        })
     }
 
     /// True while the indicator still has animation to draw: an in-flight or
@@ -537,6 +602,20 @@ pub fn battery_low(threshold: u32) -> bool {
 mod tests {
     use super::*;
 
+    const SENTINEL: u8 = 0xa5;
+
+    fn assert_untouched_outside(buf: &[u8], width: i32, rect: Option<DamageRect>) {
+        for (pixel, bytes) in buf.chunks_exact(4).enumerate() {
+            let x = pixel as i32 % width;
+            let y = pixel as i32 / width;
+            let touched = rect
+                .is_some_and(|r| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+            if !touched {
+                assert_eq!(bytes, [SENTINEL; 4], "pixel ({x}, {y}) changed");
+            }
+        }
+    }
+
     #[test]
     fn app_initial_state() {
         let app = App::new(Config::default());
@@ -631,5 +710,178 @@ mod tests {
             app.render_to_surface(&mut buf2, w2, h2, 1).unwrap();
         }
         assert_eq!(app.playlists.len(), 2, "one player per physical size");
+
+        app.retain_animation_sizes(&[(w1 as u32, h1 as u32)]);
+        assert_eq!(app.playlists.len(), 1, "unused sizes are pruned");
+        assert!(app.playlists.contains_key(&(w1 as u32, h1 as u32)));
+    }
+
+    #[test]
+    fn first_render_arms_a_lazily_created_playlist() {
+        let mut config = Config::default();
+        config.animation.modes = vec!["spiral".into()];
+        let mut app = App::new(config);
+        let (width, height) = (100, 80);
+        let mut buffer = vec![0; (width * height * 4) as usize];
+
+        app.render_to_surface(&mut buffer, width, height, 1)
+            .unwrap();
+
+        assert!(app.next_anim_wake().is_some());
+    }
+
+    #[test]
+    fn cached_render_skips_an_unchanged_frame() {
+        let mut config = Config::default();
+        config.animation.modes = vec!["spiral".into()];
+        let mut app = App::new(config);
+        let (width, height) = (100, 80);
+        let mut buffer = vec![0; (width * height * 4) as usize];
+
+        let first = app
+            .render_to_surface_cached(&mut buffer, width, height, 1, BufferContent::default())
+            .unwrap();
+        assert_eq!(first.damage, Some(DamageRect::full(width, height)));
+
+        buffer.fill(SENTINEL);
+        let second = app
+            .render_to_surface_cached(&mut buffer, width, height, 1, first.content)
+            .unwrap();
+        assert_eq!(second.damage, None);
+        assert_untouched_outside(&buffer, width, None);
+    }
+
+    #[test]
+    fn cached_render_full_damage_on_changed_generation() {
+        let mut config = Config::default();
+        config.animation.modes = vec!["spiral".into()];
+        let mut app = App::new(config);
+        let (width, height) = (100, 80);
+        let mut buffer = vec![0; (width * height * 4) as usize];
+        let current = app
+            .render_to_surface_cached(&mut buffer, width, height, 1, BufferContent::default())
+            .unwrap();
+        let Some(BaseFrame::Animation {
+            playlist,
+            generation,
+        }) = current.content.base
+        else {
+            panic!("animation frame expected");
+        };
+        let stale = BufferContent {
+            base: Some(BaseFrame::Animation {
+                playlist,
+                generation: generation.wrapping_sub(1),
+            }),
+            indicator: None,
+        };
+
+        buffer.fill(SENTINEL);
+        let changed = app
+            .render_to_surface_cached(&mut buffer, width, height, 1, stale)
+            .unwrap();
+        assert_eq!(changed.damage, Some(DamageRect::full(width, height)));
+    }
+
+    #[test]
+    fn cached_render_indicator_transitions_are_table_driven_and_partial() {
+        let mut config = Config::default();
+        config.animation.modes.clear();
+        let mut app = App::new(config);
+        let (width, height) = (800, 600);
+        let mut buffer = vec![0; (width * height * 4) as usize];
+
+        let mut content = app
+            .render_to_surface_cached(&mut buffer, width, height, 1, BufferContent::default())
+            .unwrap()
+            .content;
+        let cases = [
+            ("appear", Some(0.25)),
+            ("move", Some(0.75)),
+            ("disappear", None),
+        ];
+
+        for (name, x) in cases {
+            if let Some(x) = x {
+                app.config.indicator.x_position = x;
+                app.auth_state = AuthState::Typing;
+                app.last_interaction = Some(Instant::now());
+            } else {
+                app.auth_state = AuthState::Idle;
+                app.last_interaction =
+                    Some(Instant::now() - INDICATOR_IDLE_HIDE - Duration::from_millis(1));
+            }
+            buffer.fill(SENTINEL);
+            let outcome = app
+                .render_to_surface_cached(&mut buffer, width, height, 1, content)
+                .unwrap();
+            let expected = match (content.indicator, outcome.content.indicator) {
+                (Some(old), Some(new)) => Some(old.union(new)),
+                (Some(rect), None) | (None, Some(rect)) => Some(rect),
+                (None, None) => None,
+            };
+            assert_eq!(outcome.damage, expected, "{name}");
+            assert_untouched_outside(&buffer, width, expected);
+            content = outcome.content;
+        }
+    }
+
+    #[test]
+    fn cached_render_rotating_buffers_submit_last_committed_indicator_damage() {
+        let mut config = Config::default();
+        config.animation.modes.clear();
+        let mut app = App::new(config);
+        let (width, height) = (800, 600);
+        let mut buffers = [
+            vec![0; (width * height * 4) as usize],
+            vec![0; (width * height * 4) as usize],
+        ];
+        let mut contents = [BufferContent::default(); 2];
+        for i in 0..2 {
+            contents[i] = app
+                .render_to_surface_cached(
+                    &mut buffers[i],
+                    width,
+                    height,
+                    1,
+                    BufferContent::default(),
+                )
+                .unwrap()
+                .content;
+        }
+
+        app.auth_state = AuthState::Typing;
+        app.last_interaction = Some(Instant::now());
+        app.config.indicator.x_position = 0.25;
+        buffers[0].fill(SENTINEL);
+        let first = app
+            .render_to_surface_cached(&mut buffers[0], width, height, 1, contents[0])
+            .unwrap();
+        assert_untouched_outside(&buffers[0], width, first.damage);
+        contents[0] = first.content;
+
+        app.config.indicator.x_position = 0.75;
+        buffers[1].fill(SENTINEL);
+        let second = app
+            .render_to_surface_cached(&mut buffers[1], width, height, 1, contents[1])
+            .unwrap();
+        assert_untouched_outside(&buffers[1], width, second.damage);
+
+        app.auth_state = AuthState::Idle;
+        app.last_interaction =
+            Some(Instant::now() - INDICATOR_IDLE_HIDE - Duration::from_millis(1));
+        buffers[0].fill(SENTINEL);
+        let third = app
+            .render_to_surface_cached(&mut buffers[0], width, height, 1, contents[0])
+            .unwrap();
+        assert_untouched_outside(&buffers[0], width, third.damage);
+
+        let last_committed = second.content.indicator.expect("second indicator");
+        let expected = third.damage.unwrap().union(last_committed);
+        assert_eq!(
+            crate::wayland::submitted_damage(third.damage, true, Some(last_committed)),
+            Some(expected),
+            "rotating back to buffer A must clear buffer B's on-screen indicator"
+        );
     }
 }

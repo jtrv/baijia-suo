@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Benchmarking and Static Analysis Plan - baijia-suo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #5d6874;
+      --paper: #f5f6f4;
+      --panel: #ffffff;
+      --line: #d8ddd9;
+      --green: #176b4d;
+      --green-bg: #e4f3eb;
+      --amber: #835b00;
+      --amber-bg: #fff1c7;
+      --red: #9b2c2c;
+      --red-bg: #fde8e8;
+      --blue: #245b78;
+      --code: #20272e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 44px 0 64px; }
+    header { border-bottom: 2px solid var(--ink); padding-bottom: 24px; margin-bottom: 32px; }
+    h1, h2, h3 { line-height: 1.2; margin-top: 0; }
+    h1 { font-family: Georgia, serif; font-size: clamp(2rem, 5vw, 3.25rem); margin-bottom: 10px; }
+    h2 { font-family: Georgia, serif; font-size: 1.55rem; margin-bottom: 16px; }
+    h3 { font-size: 1.04rem; margin-bottom: 7px; }
+    p { margin: 0 0 12px; }
+    a { color: var(--blue); }
+    code { font: .9em ui-monospace, SFMono-Regular, Consolas, monospace; }
+    pre {
+      margin: 12px 0 0;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border-radius: 6px;
+      background: var(--code);
+      color: #f7f7f2;
+      font: .84rem/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+    section { margin-top: 38px; }
+    .lede { max-width: 820px; color: var(--muted); font-size: 1.08rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .tag { border-radius: 4px; padding: 4px 8px; font-size: .78rem; font-weight: 650; }
+    .recommended { background: var(--green-bg); color: var(--green); }
+    .secondary { background: var(--amber-bg); color: var(--amber); }
+    .constraint { background: var(--red-bg); color: var(--red); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 19px; }
+    .card p:last-child, .callout p:last-child { margin-bottom: 0; }
+    .rank { color: var(--green); font: 700 .78rem ui-monospace, monospace; text-transform: uppercase; }
+    .callout { border-left: 4px solid var(--red); background: var(--panel); padding: 16px 18px; }
+    table { width: 100%; border-collapse: collapse; background: var(--panel); font-size: .91rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: 11px 12px; text-align: left; vertical-align: top; }
+    th { background: #e9ece9; font-size: .78rem; text-transform: uppercase; color: #46505a; }
+    tbody tr:last-child td { border-bottom: 0; }
+    ul, ol { margin: 8px 0 0; padding-left: 22px; }
+    li { margin: 5px 0; }
+    .small { color: var(--muted); font-size: .87rem; }
+    .decision { font-weight: 700; color: var(--green); }
+    .skip { color: var(--muted); }
+    .sources { columns: 2; column-gap: 30px; }
+    .sources li { break-inside: avoid; }
+    @media (max-width: 740px) {
+      main { width: min(100% - 22px, 1080px); padding-top: 24px; }
+      .grid { grid-template-columns: 1fr; }
+      .table-wrap { overflow-x: auto; }
+      table { min-width: 720px; }
+      .sources { columns: 1; }
+    }
+    @media print {
+      body { background: #fff; }
+      main { width: 100%; padding: 0; }
+      .card, table { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Benchmarking and Static Analysis Plan</h1>
+    <p class="lede">A project-specific tool recommendation for <strong>baijia-suo</strong>, a Rust Wayland screen locker with a large animation library, raw shared-memory rendering, PAM/IPC boundaries, and deliberate unsafe code.</p>
+    <div class="meta">
+      <span class="tag recommended">Recommended stack</span>
+      <span class="tag secondary">Rust MSRV 1.86</span>
+      <span class="tag constraint">Never launch the locker from automation</span>
+      <span class="tag secondary">Prepared 2026-07-20</span>
+    </div>
+  </header>
+
+  <section class="callout" aria-labelledby="safety-title">
+    <h2 id="safety-title">Safety constraint</h2>
+    <p>Benchmark and analysis commands must operate on library code, test targets, benchmark targets, or an already-running owner-started process. They must not invoke <code>cargo run</code>, <code>cargo flamegraph</code> against the default binary, or execute <code>target/*/baijia-suo</code>. A failed locker session can prevent the owner from regaining the desktop.</p>
+  </section>
+
+  <section aria-labelledby="verdict-title">
+    <h2 id="verdict-title">Recommended stack</h2>
+    <div class="grid">
+      <article class="card">
+        <div class="rank">1 / benchmark harness</div>
+        <h3>Criterion 0.8.2</h3>
+        <p>Use for stable, repeatable microbenchmarks of <code>AnimationPlayer</code>, simulation ticks, rendering, and buffer copies. Criterion stores statistical baselines and reports confidence intervals instead of relying on single timings.</p>
+        <p class="small">Version 0.8 raised its MSRV to Rust 1.86, exactly matching this project. The benchmark target runs independently and does not start Wayland or PAM.</p>
+      </article>
+      <article class="card">
+        <div class="rank">2 / real workload profiler</div>
+        <h3>Linux perf, attached by PID</h3>
+        <p>Use <code>perf stat</code> and <code>perf record</code> against a lock session started by the owner. This measures the compositor-facing workload, memory traffic, cache behavior, and hot stacks that isolated microbenchmarks cannot reproduce.</p>
+        <p class="small">Prefer direct <code>perf</code> attachment over <code>cargo flamegraph</code>, whose normal workflow launches the selected binary.</p>
+      </article>
+      <article class="card">
+        <div class="rank">3 / required static check</div>
+        <h3>Clippy with warnings denied</h3>
+        <p>Keep the existing all-target check mandatory. Clippy's default groups cover correctness, suspicious code, complexity, style, and common performance mistakes with no additional project dependency.</p>
+        <pre>RUSTC_WRAPPER= cargo +stable clippy \
+  --all-targets --locked -- -D warnings</pre>
+      </article>
+      <article class="card">
+        <div class="rank">4 / unsafe-code validation</div>
+        <h3>Miri, narrowly targeted</h3>
+        <p>This repository has unsafe allocation, pointer slicing, mmap, alignment, fork/pipe, PAM, and Wayland FFI. Miri can detect undefined behavior in code paths it can emulate, including out-of-bounds access, invalid alignment, use-after-free, and aliasing violations.</p>
+        <p class="small">Use test filters. Whole-suite Miri is a poor fit because several OS and FFI operations are unsupported or prohibitively slow.</p>
+      </article>
+      <article class="card">
+        <div class="rank">5 / supply chain</div>
+        <h3>cargo-deny</h3>
+        <p>Use one policy tool for RustSec advisories, license allowlists, duplicate crate bans, and trusted dependency sources. Until configured, the already-installed <code>cargo audit</code> remains a useful advisory-only check.</p>
+      </article>
+      <article class="card">
+        <div class="rank">6 / test quality</div>
+        <h3>cargo-llvm-cov</h3>
+        <p>Use source-based coverage to find unexercised rendering policies, buffer lifecycle branches, parser validation, and safe wrappers around unsafe code. Coverage is diagnostic evidence, not a percentage target.</p>
+      </article>
+    </div>
+  </section>
+
+  <section aria-labelledby="bench-title">
+    <h2 id="bench-title">Criterion benchmark design</h2>
+    <p>The smallest useful suite is one benchmark target with a representative mode matrix. The public <code>animation</code> API already exposes <code>AnimationPlayer</code>, so no benchmark-only production abstraction is needed.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Case</th><th>Measures</th><th>Representative inputs</th><th>Question answered</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>player_advance</code></td><td>Tick plus canonical render cost</td><td>petri, binaryring, moire, lightning, piecewise</td><td>Which simulations or render policies dominate CPU time?</td></tr>
+          <tr><td><code>player_blit</code></td><td>Canonical BGRA to destination copy</td><td>800x600, 1920x1080, 3440x1440</td><td>How much fixed cost scales only with pixel count?</td></tr>
+          <tr><td><code>advance_and_blit</code></td><td>Current complete player pipeline</td><td>Same mode and size matrix</td><td>Does an optimization improve total work rather than one isolated stage?</td></tr>
+          <tr><td><code>solid_rect_restore</code></td><td>Indicator-region restoration</td><td>Small, typical, and clipped rectangles</td><td>Does partial restoration stay materially cheaper than a full fill?</td></tr>
+          <tr><td><code>generation_hit</code></td><td>Unchanged and indicator-only cached frames</td><td>1080p and 3440x1440</td><td>Does item 16a avoid full-frame memory traffic?</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3>Manifest shape</h3>
+      <pre>[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "animations"
+harness = false</pre>
+      <p class="small">Use <code>std::hint::black_box</code>, Criterion throughput in bytes for copies, and a fixed amount of setup outside the timed loop. Keep HTML reports optional; numeric baselines are sufficient for review and CI artifacts.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="runtime-title">
+    <h2 id="runtime-title">Owner-run profiling protocol</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Counter sample</h3>
+        <pre>perf stat -p "$PID" \
+  -e task-clock,cycles,instructions,cache-misses \
+  -- sleep 30</pre>
+        <p class="small">Record the active mode, resolution, scale, FPS cap, commit, CPU governor, and whether the indicator was active.</p>
+      </article>
+      <article class="card">
+        <h3>Hot-stack sample</h3>
+        <pre>perf record -g -p "$PID" -- sleep 30
+perf report</pre>
+        <p class="small">For meaningful Rust symbols, profile an optimized build with debug information enabled in a dedicated profiling Cargo profile. Do not weaken the shipped release profile.</p>
+      </article>
+    </div>
+    <p style="margin-top:14px">Use the existing <code>--debug-timing</code> reports beside perf. Criterion establishes repeatable component deltas; perf and the internal logger establish whether those deltas matter in a real Wayland session.</p>
+  </section>
+
+  <section aria-labelledby="static-title">
+    <h2 id="static-title">Static and dynamic analysis matrix</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Tool</th><th>Cadence</th><th>Recommended command or scope</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>rustfmt</td><td>Every change</td><td><code>cargo +stable fmt --all -- --check</code></td><td>Already established.</td></tr>
+          <tr><td>Clippy</td><td>Every change</td><td><code>cargo +stable clippy --all-targets --locked -- -D warnings</code></td><td>Required baseline.</td></tr>
+          <tr><td>Miri</td><td>Unsafe changes / scheduled</td><td>Filtered library tests for buffers, pixel primitives, passwords, and IPC encoding</td><td>Avoid unsupported PAM, Wayland, fork, and OS paths.</td></tr>
+          <tr><td>AddressSanitizer</td><td>Unsafe/FFI changes</td><td>Nightly, library tests only</td><td>Complements Miri on native FFI paths; do not run the locker.</td></tr>
+          <tr><td>cargo-deny</td><td>CI and dependency updates</td><td><code>cargo deny check</code></td><td>Advisories, licenses, bans, and sources.</td></tr>
+          <tr><td>cargo-audit</td><td>Immediate fallback</td><td><code>cargo audit</code></td><td>Already installed; advisory-only overlap with cargo-deny.</td></tr>
+          <tr><td>cargo-llvm-cov</td><td>Before releases / major refactors</td><td><code>cargo llvm-cov --lib --html</code></td><td>Use gaps to direct tests; do not chase a vanity threshold.</td></tr>
+          <tr><td>cargo-machete</td><td>Dependency changes</td><td><code>cargo machete</code></td><td>Already installed, fast and intentionally imprecise; confirm results.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="skip-title">
+    <h2 id="skip-title">Tools not worth adopting now</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>iai-callgrind</h3>
+        <p class="skip">Useful for deterministic instruction-count regressions in pure algorithms, but it is a poor primary model for this project's memory bandwidth, cache effects, SIMD copies, and compositor-facing behavior. Add only if Criterion proves too noisy for a specific tick algorithm.</p>
+      </article>
+      <article class="card">
+        <h3>cargo-nextest</h3>
+        <p class="skip">The current suite is small and already finishes quickly. Parallel test infrastructure adds little, and Miri specifically retains some race-detection advantages with the standard test runner.</p>
+      </article>
+      <article class="card">
+        <h3>cargo-udeps</h3>
+        <p class="skip">Already installed, but nightly-only and redundant for routine use. Keep it only as confirmation when cargo-machete reports a questionable dependency.</p>
+      </article>
+      <article class="card">
+        <h3>cargo-bloat and cargo-llvm-lines</h3>
+        <p class="skip"><code>cargo bloat --release --crates</code> is useful if shipped binary size becomes a goal. LLVM line counts diagnose compile-time monomorphization, not animation runtime performance. Neither belongs in the initial optimization loop.</p>
+      </article>
+      <article class="card">
+        <h3>Mutation testing and fuzzing</h3>
+        <p class="skip">Potentially useful for parsers and IPC later, but neither answers the current rendering-performance question. Add a focused fuzzer only when a concrete untrusted-input boundary lacks effective examples.</p>
+      </article>
+      <article class="card">
+        <h3>Automated cargo-flamegraph launch</h3>
+        <p class="skip">Rejected for the application binary because it could start the screen locker. It remains acceptable against a named benchmark target, or its underlying perf workflow can attach to an owner-started PID.</p>
+      </article>
+    </div>
+  </section>
+
+  <section aria-labelledby="order-title">
+    <h2 id="order-title">Adoption order</h2>
+    <ol>
+      <li><span class="decision">Add one Criterion benchmark target.</span> Establish advance, blit, and combined baselines for five modes at three resolutions.</li>
+      <li><span class="decision">Profile one owner-run session with perf.</span> Compare Petri and binaryring at 3440x1440 against the existing timing logs.</li>
+      <li><span class="decision">Add cargo-deny policy.</span> Keep Clippy, rustfmt, tests, and dependency policy as the routine CI gate.</li>
+      <li><span class="decision">Run targeted Miri and sanitizer passes.</span> Prioritize raw buffers, allocation, alignment, mmap ownership, and IPC serialization.</li>
+      <li><span class="decision">Generate coverage only after those checks.</span> Use uncovered risk paths to select tests rather than enforcing an arbitrary percentage.</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="review-title">
+    <h2 id="review-title">Questions for external review</h2>
+    <ul>
+      <li>Does the proposed benchmark matrix isolate simulation, canonical rendering, and SHM-copy cost without changing production visibility solely for benchmarks?</li>
+      <li>Which modes best represent each <code>RenderPolicy</code>, and are any selected modes too nondeterministic for reliable Criterion comparisons?</li>
+      <li>Is Criterion 0.8.2's dependency footprint acceptable as a dev-only dependency under the project's minimal-dependency policy?</li>
+      <li>Which unsafe modules can Miri exercise without disabling isolation or masking unsupported OS behavior?</li>
+      <li>What objective threshold should justify item 16b direct-to-SHM complexity: absolute frame time, memory bandwidth, CPU utilization, or battery impact?</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="sources-title">
+    <h2 id="sources-title">Primary references</h2>
+    <ul class="sources small">
+      <li><a href="https://doc.rust-lang.org/cargo/commands/cargo-bench.html">Cargo Book: cargo bench</a></li>
+      <li><a href="https://criterion-rs.github.io/book/index.html">Criterion.rs user guide</a></li>
+      <li><a href="https://docs.rs/crate/criterion/latest/source/CHANGELOG.md">Criterion changelog and MSRV</a></li>
+      <li><a href="https://github.com/flamegraph-rs/flamegraph">cargo-flamegraph</a></li>
+      <li><a href="https://doc.rust-lang.org/stable/clippy/usage.html">Clippy usage</a></li>
+      <li><a href="https://github.com/rust-lang/miri">Miri</a></li>
+      <li><a href="https://github.com/EmbarkStudios/cargo-deny">cargo-deny</a></li>
+      <li><a href="https://github.com/rustsec/rustsec/blob/main/cargo-audit/README.md">cargo-audit</a></li>
+      <li><a href="https://github.com/taiki-e/cargo-llvm-cov">cargo-llvm-cov</a></li>
+      <li><a href="https://docs.rs/crate/cargo-machete/latest">cargo-machete</a></li>
+      <li><a href="https://github.com/RazrFalcon/cargo-bloat">cargo-bloat</a></li>
+      <li><a href="https://docs.rs/crate/cargo-llvm-lines/latest">cargo-llvm-lines</a></li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>
