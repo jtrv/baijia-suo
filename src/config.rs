@@ -154,6 +154,8 @@ pub struct Config {
     pub indicator: IndicatorConfig,
     /// Daemonize mode.
     pub daemonize: bool,
+    /// Log per-frame timing aggregates (CLI-only debug flag).
+    pub debug_timing: bool,
     /// Readiness file descriptor.
     pub ready_fd: Option<i32>,
 }
@@ -300,6 +302,7 @@ impl Config {
                 .or(file.low_battery_percent)
                 .unwrap_or(0),
             daemonize: args.daemonize || file.daemonize.unwrap_or(false),
+            debug_timing: args.debug_timing,
             ready_fd: args.ready_fd,
             background_color: pick(&args.color, file.color)
                 .map(|c| Color::from_hex(&c))

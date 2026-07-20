@@ -93,6 +93,12 @@ pub struct WaylandState {
     /// Whether the indicator was visible last tick, to force one redraw when it
     /// hides after the idle window so it clears even with nothing animating.
     indicator_was_visible: bool,
+
+    // --debug-timing accumulators (untouched unless the flag is set)
+    timing_frames: u32,
+    timing_advance_us: u64,
+    timing_present_us: u64,
+    timing_report_at: Option<Instant>,
 }
 
 impl WaylandState {
@@ -122,6 +128,10 @@ impl WaylandState {
             anim_wake_at: None,
             pam_msg_was_live: false,
             indicator_was_visible: false,
+            timing_frames: 0,
+            timing_advance_us: 0,
+            timing_present_us: 0,
+            timing_report_at: None,
         }
     }
 
@@ -187,6 +197,8 @@ impl WaylandState {
             return;
         }
 
+        let t_start = self.app.config.debug_timing.then(Instant::now);
+
         // render_to_surface sizes the player per output; the first frame
         // after a resize may render blank, which the next tick corrects.
         // In low-power mode the animation clock stops entirely — no ticks,
@@ -199,6 +211,8 @@ impl WaylandState {
             }
             self.anim_wake_at = self.app.playlist.as_ref().and_then(|p| p.next_wake());
         }
+
+        let t_advanced = t_start.map(|_| Instant::now());
 
         let ids: Vec<u32> = self.outputs.keys().copied().collect();
         for id in ids {
@@ -258,6 +272,29 @@ impl WaylandState {
             wl_surface.commit();
             buf.set_busy(true);
             self.outputs.get_mut(&id).unwrap().frame_pending = true;
+        }
+
+        // --debug-timing: aggregate advance vs present cost, report ~1/s.
+        if let (Some(start), Some(advanced)) = (t_start, t_advanced) {
+            let end = Instant::now();
+            self.timing_frames += 1;
+            self.timing_advance_us += advanced.duration_since(start).as_micros() as u64;
+            self.timing_present_us += end.duration_since(advanced).as_micros() as u64;
+            let due = self.timing_report_at.is_none_or(|t| end >= t);
+            if due {
+                if self.timing_frames > 0 && self.timing_report_at.is_some() {
+                    log::info!(
+                        "timing: {} frames/s, advance avg {}us, present avg {}us",
+                        self.timing_frames,
+                        self.timing_advance_us / self.timing_frames as u64,
+                        self.timing_present_us / self.timing_frames as u64,
+                    );
+                }
+                self.timing_frames = 0;
+                self.timing_advance_us = 0;
+                self.timing_present_us = 0;
+                self.timing_report_at = Some(end + Duration::from_secs(1));
+            }
         }
     }
 

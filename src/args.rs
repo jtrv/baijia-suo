@@ -51,6 +51,11 @@ pub(crate) struct Args {
     #[arg(long, value_name = "PERCENT")]
     pub low_battery_percent: Option<u32>,
 
+    /// Log per-frame timing (animation advance vs present cost, 1/s
+    /// aggregate) for performance work.
+    #[arg(long)]
+    pub debug_timing: bool,
+
     /// List available animation modes and exit
     #[arg(long)]
     pub list_animations: bool,
