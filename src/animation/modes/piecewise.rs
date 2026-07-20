@@ -798,12 +798,19 @@ fn draw_arc(buffer: &mut [u8], width: u32, height: u32, arc: &Arc, color: Color)
     let ra2 = arc.a2 as f64 * std::f64::consts::PI / X_PI as f64;
     let sweep = ra2 - ra1;
     let steps = ((sweep.abs() * arc.r).ceil() as i32).max(1);
-    let mut px = (arc.cx + arc.r * ra1.cos()).round() as i32;
-    let mut py = (arc.cy + arc.r * ra1.sin()).round() as i32;
-    for s in 1..=steps {
-        let a = ra1 + sweep * s as f64 / steps as f64;
-        let nx = (arc.cx + arc.r * a.cos()).round() as i32;
-        let ny = (arc.cy + arc.r * a.sin()).round() as i32;
+    // Advance the point with the 2D rotation recurrence instead of a fresh
+    // sin/cos per step (thousands of trig pairs per frame across ~32
+    // circles). Drift over a full circle at f64 is far below a pixel.
+    let (step_sin, step_cos) = (sweep / steps as f64).sin_cos();
+    let (mut uy, mut ux) = ra1.sin_cos();
+    let mut px = (arc.cx + arc.r * ux).round() as i32;
+    let mut py = (arc.cy + arc.r * uy).round() as i32;
+    for _ in 1..=steps {
+        let nux = ux * step_cos - uy * step_sin;
+        uy = ux * step_sin + uy * step_cos;
+        ux = nux;
+        let nx = (arc.cx + arc.r * ux).round() as i32;
+        let ny = (arc.cy + arc.r * uy).round() as i32;
         draw_line(buffer, width, height, px, py, nx, ny, color);
         px = nx;
         py = ny;

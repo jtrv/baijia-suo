@@ -221,7 +221,8 @@ impl Animation for Noof {
         }
 
         // update
-        let mut reset_indices = Vec::new();
+        // Fixed-size flags for a fixed-size shape array: no per-tick Vec.
+        let mut needs_reset = [false; N_SHAPES];
         for i in 0..N_SHAPES {
             let shape = &mut self.shapes[i];
             
@@ -283,10 +284,10 @@ impl Animation for Noof {
             }
 
             if y < 0.001 && x > 0.000002 && (self.tko & 0x1) == 0 {
-                reset_indices.push(i);
+                needs_reset[i] = true;
             }
         }
-        for i in reset_indices {
+        for i in (0..N_SHAPES).filter(|&i| needs_reset[i]) {
             initshapes(&mut self.shapes[i]);
             self.tko += 1;
         }

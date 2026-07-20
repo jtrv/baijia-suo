@@ -123,21 +123,21 @@ fn calc_section(
     add_bezier_arc(points, p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y);
 }
 
-fn compute_closed_spline(controls: &[(f64, f64)]) -> Vec<(f64, f64)> {
-    let mut points = Vec::new();
+/// Appends into a caller-owned scratch vec — this runs on starfish's 2ms
+/// simulation clock, so a fresh allocation per tick is real churn.
+fn compute_closed_spline(controls: &[(f64, f64)], points: &mut Vec<(f64, f64)>) {
+    points.clear();
     let n = controls.len();
     if n < 3 {
-        return points;
+        return;
     }
 
-    calc_section(&mut points, controls[n - 1], controls[0], controls[1], controls[2]);
+    calc_section(points, controls[n - 1], controls[0], controls[1], controls[2]);
     for i in 1..n - 2 {
-        calc_section(&mut points, controls[i - 1], controls[i], controls[i + 1], controls[i + 2]);
+        calc_section(points, controls[i - 1], controls[i], controls[i + 1], controls[i + 2]);
     }
-    calc_section(&mut points, controls[n - 3], controls[n - 2], controls[n - 1], controls[0]);
-    calc_section(&mut points, controls[n - 2], controls[n - 1], controls[0], controls[1]);
-
-    points
+    calc_section(points, controls[n - 3], controls[n - 2], controls[n - 1], controls[0]);
+    calc_section(points, controls[n - 2], controls[n - 1], controls[0], controls[1]);
 }
 
 fn fill_polygon(buffer: &mut [u8], width: u32, height: u32, points: &[(f64, f64)], color: Color) {
@@ -424,8 +424,10 @@ impl Animation for Starfish {
         self.throb_starfish();
         self.spin_starfish();
 
-        let new_spline = compute_closed_spline(&self.controls);
-
+        // Rotate buffers: the outgoing `prev` allocation becomes the new
+        // spline's scratch, so steady state allocates nothing.
+        let mut new_spline = std::mem::take(&mut self.prev);
+        compute_closed_spline(&self.controls, &mut new_spline);
         self.prev = std::mem::take(&mut self.current_spline);
         self.current_spline = new_spline;
 

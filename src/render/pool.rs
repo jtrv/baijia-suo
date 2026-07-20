@@ -176,6 +176,24 @@ impl DoublePool {
         self.buffers
             .retain(|b| b.is_busy() || (b.width() == width && b.height() == height));
 
+        // Bound the pool: frame callbacks can arrive before the compositor
+        // releases its wl_buffer, so pacing alone doesn't keep this at two
+        // entries — and a 4K BGRA buffer is ~33 MB. Three matching buffers
+        // (one on screen, one queued, one being drawn) is the ceiling any
+        // sane compositor needs; past that, refuse and let the caller skip
+        // this presentation (the next frame callback retries).
+        const MAX_MATCHING: usize = 3;
+        let matching = self
+            .buffers
+            .iter()
+            .filter(|b| b.width() == width && b.height() == height)
+            .count();
+        if matching >= MAX_MATCHING {
+            return Err(format!(
+                "all {matching} pool buffers busy for {width}x{height}; skipping frame"
+            ));
+        }
+
         let buffer = PoolBuffer::new(shm, width, height, qh)?;
         self.buffers.push(buffer);
 
