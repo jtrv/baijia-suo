@@ -793,7 +793,7 @@ impl Animation for Molecule {
                         draw_atom_label(
                             buffer, width, height,
                             a.sx.round() as i32, a.sy.round() as i32,
-                            radius_f.round() as i32, &a.label, a.data.text_color,
+                            radius_f.round() as i32, a.label, a.data.text_color,
                         );
                     }
                 }

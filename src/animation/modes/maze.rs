@@ -292,16 +292,23 @@ impl Maze {
         let max_grid_size = ((self.width.min(self.height) as i32) - 1) / MINGRIDSIZE;
         let size = self.config_size;
         
-        let ys;
-        if size < -minsize {
+        let ys = if size < -minsize {
             let limit = (-size).min(minsize.max(max_grid_size));
             let range = limit - minsize + 1;
-            ys = if range > 0 { rng.random_range(0..range) + minsize } else { minsize };
+            if range > 0 {
+                rng.random_range(0..range) + minsize
+            } else {
+                minsize
+            }
         } else if size < minsize {
-            ys = if size == 0 { minsize.max(max_grid_size) } else { minsize };
+            if size == 0 {
+                minsize.max(max_grid_size)
+            } else {
+                minsize
+            }
         } else {
-            ys = size.min(minsize.max(max_grid_size));
-        }
+            size.min(minsize.max(max_grid_size))
+        };
         self.ys = ys;
         self.xs = ys;
         

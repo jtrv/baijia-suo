@@ -476,8 +476,8 @@ pub fn battery_low(threshold: u32) -> bool {
     if !discharging {
         return false;
     }
-    let percent = if full_sum > 0 {
-        (100 * now_sum / full_sum) as u32
+    let percent = if let Some(p) = (100 * now_sum).checked_div(full_sum) {
+        p as u32
     } else if let Some(cap) = capacity_fallback {
         cap as u32
     } else {

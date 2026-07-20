@@ -169,7 +169,11 @@ impl WaylandState {
         // never comes while the display is off) resumes everything. The
         // player re-anchors across the gap.
         let any_ready = self.outputs.values().any(|i| {
-            i.configured && !i.frame_pending && i.wl_surface.is_some() && i.width > 0 && i.height > 0
+            i.configured
+                && !i.frame_pending
+                && i.wl_surface.is_some()
+                && i.width > 0
+                && i.height > 0
         });
         if !any_ready {
             if self
