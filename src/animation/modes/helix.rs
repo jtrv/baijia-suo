@@ -19,7 +19,7 @@
 use rand::Rng;
 use std::f64::consts::PI;
 use crate::animation::primitives::{draw_line, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const ANGLES: usize = 360;
 
@@ -353,8 +353,8 @@ impl Animation for Helix {
         self.randomize();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::CompleteFrame
     }
 
     fn frame_delay_us(&self) -> u64 {

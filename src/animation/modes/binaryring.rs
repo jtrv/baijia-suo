@@ -28,7 +28,7 @@
 use rand::Rng;
 use std::f32::consts::PI;
 
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const BLACK: usize = 0;
 const WHITE: usize = 1;
@@ -399,8 +399,8 @@ impl Animation for BinaryRing {
         }
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::CompleteFrame
     }
 
     fn frame_delay_us(&self) -> u64 {

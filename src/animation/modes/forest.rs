@@ -367,10 +367,6 @@ impl Animation for Forest {
         self.needs_clear.set(true);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        // Draws incrementally onto a black background; only clears on reset.
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us

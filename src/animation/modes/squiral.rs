@@ -14,7 +14,7 @@
 use rand::Rng;
 
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const NCOLORSMAX: i32 = 255;
 
@@ -320,8 +320,8 @@ impl Animation for Squiral {
         self.init_1();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::CompleteFrame
     }
 
     fn frame_delay_us(&self) -> u64 {

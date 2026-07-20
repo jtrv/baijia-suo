@@ -220,10 +220,6 @@ impl Animation for Vines {
         self.full_reset();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        // Vines accumulates across frames; only clears on iteration reset.
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us

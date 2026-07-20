@@ -260,9 +260,6 @@ impl Animation for Maze {
         self.ops.push(DrawOp::Clear(Color::new(255, 0, 0, 0)));
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us

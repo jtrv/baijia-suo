@@ -17,7 +17,7 @@
 use rand::Rng;
 
 use crate::animation::primitives::{draw_line, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const X_PI: i32 = 180 * 64;
 
@@ -1125,8 +1125,8 @@ impl Animation for Piecewise {
         self.iterations = 0;
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

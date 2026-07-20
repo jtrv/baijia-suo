@@ -30,7 +30,7 @@
 use rand::Rng;
 use std::f64::consts::PI;
 use crate::animation::primitives::{Color, Spline};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const SCALE: i64 = 10000; /* fixed-point math, for sub-pixel motion */
 const DEF_COUNT: i32 = 12; /* When planes and count are 0, how many blobs. */
@@ -409,8 +409,8 @@ impl Animation for Goop {
         }
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

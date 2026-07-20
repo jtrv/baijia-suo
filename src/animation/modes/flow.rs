@@ -25,7 +25,7 @@ use rand::Rng;
 use std::f64;
 
 use crate::animation::primitives::{draw_line, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const LOST_IN_SPACE: f64 = 2000.0;
 const INITIALSTEP: f64 = 0.04;
@@ -830,8 +830,8 @@ impl Animation for Flow {
         self.do_init();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

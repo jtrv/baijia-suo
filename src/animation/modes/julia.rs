@@ -17,7 +17,7 @@
 // Rust port of xlockmore/modes/julia.c.
 
 use crate::animation::primitives::{put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use rand::Rng;
 use std::f64::consts::PI;
 
@@ -228,8 +228,8 @@ impl Animation for Julia {
         self.delay_us = config.delay_us;
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

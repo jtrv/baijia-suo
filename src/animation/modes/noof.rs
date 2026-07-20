@@ -392,9 +392,6 @@ impl Animation for Noof {
         self.needs_clear.set(true);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         // noof.c: "*delay: 10000". The old hardcoded 1_000 here overran the

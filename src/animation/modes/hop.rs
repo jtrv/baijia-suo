@@ -456,13 +456,6 @@ impl Animation for Hop {
         self.randomize();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        // Hop is an incremental accumulation animation: it draws new points on top of
-        // the existing buffer and only clears when randomize() is called (which is handled
-        // by the caller clearing the screen at the start of a new animation instance).
-        // The caller must initialise the buffer to opaque black before the first tick.
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us

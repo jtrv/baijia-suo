@@ -7,7 +7,7 @@
 //! defaults table. Callers (the Wayland event loop, `App::render_to_surface`)
 //! make no timing decisions of their own.
 
-use super::{primitives, AnimConfig, AnimRegistry, Animation};
+use super::{primitives, AnimConfig, AnimRegistry, Animation, RenderPolicy};
 use std::time::{Duration, Instant};
 
 pub struct AnimationPlayer {
@@ -182,32 +182,41 @@ impl AnimationPlayer {
         let mut done: u64 = 0;
         if let (Some((w, h)), Some(buf)) = (self.surface_size, self.buffer.as_mut()) {
             let budget_start = Instant::now();
-            if self.animation.clears_each_frame() {
-                for _ in 0..planned {
-                    self.animation.tick();
-                    done += 1;
-                    if budget_start.elapsed() > TICK_BUDGET {
-                        break;
+            match self.animation.render_policy() {
+                RenderPolicy::Incremental => {
+                    // tick+render pairs: incremental modes queue draw ops
+                    // per tick and consume them in render, so the pairing
+                    // must hold.
+                    for _ in 0..planned {
+                        self.animation.tick();
+                        self.animation.render(buf, w, h);
+                        done += 1;
+                        if budget_start.elapsed() > TICK_BUDGET {
+                            break;
+                        }
                     }
                 }
-                // Skip the clear + render when nothing ticked and the buffer
-                // already holds the current frame: keystroke/indicator
-                // redraws call advance() far more often than most mode
-                // clocks fire, and re-rendering an identical frame is waste.
-                if done > 0 || self.dirty {
-                    primitives::clear_buffer(buf, self.background);
-                    self.animation.render(buf, w, h);
-                    self.dirty = false;
-                }
-            } else {
-                // tick+render pairs: incremental modes queue draw ops per
-                // tick and consume them in render, so the pairing must hold.
-                for _ in 0..planned {
-                    self.animation.tick();
-                    self.animation.render(buf, w, h);
-                    done += 1;
-                    if budget_start.elapsed() > TICK_BUDGET {
-                        break;
+                policy => {
+                    for _ in 0..planned {
+                        self.animation.tick();
+                        done += 1;
+                        if budget_start.elapsed() > TICK_BUDGET {
+                            break;
+                        }
+                    }
+                    // Render once for the whole batch — CompleteFrame modes
+                    // overwrite everything from their own canvas, so batching
+                    // also skips their intermediate full-canvas copies. Skip
+                    // entirely when nothing ticked and the buffer already
+                    // holds the current frame: keystroke/indicator redraws
+                    // call advance() far more often than most mode clocks
+                    // fire, and re-rendering an identical frame is waste.
+                    if done > 0 || self.dirty {
+                        if policy == RenderPolicy::ClearThenRender {
+                            primitives::clear_buffer(buf, self.background);
+                        }
+                        self.animation.render(buf, w, h);
+                        self.dirty = false;
                     }
                 }
             }

@@ -379,9 +379,6 @@ impl Animation for Flame {
         self.variation = rand::rng().random_range(0..MAXKINDS);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         DEF_DELAY_US

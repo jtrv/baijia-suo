@@ -22,7 +22,7 @@
 
 use rand::Rng;
 use std::f64::consts::PI;
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use crate::animation::primitives::{put_pixel, Color, clear_buffer};
 
 const MINSIZE: i32 = 1;
@@ -465,8 +465,12 @@ impl Animation for Galaxy {
         self.startover();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        self.fisheye
+    fn render_policy(&self) -> RenderPolicy {
+        if self.fisheye {
+            RenderPolicy::ClearThenRender
+        } else {
+            RenderPolicy::Incremental
+        }
     }
 
     fn frame_delay_us(&self) -> u64 {

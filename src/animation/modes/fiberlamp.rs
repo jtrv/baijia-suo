@@ -20,7 +20,7 @@ use rand::Rng;
 use std::f64::consts::PI;
 
 use crate::animation::primitives::{draw_line, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const SPREAD: f64 = 30.0;
 const NODES: usize = 20;
@@ -306,8 +306,8 @@ impl Animation for Fiberlamp {
         self.change(&mut rng);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

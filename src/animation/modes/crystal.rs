@@ -20,7 +20,7 @@ use std::f32::consts::PI;
 use rand::Rng;
 
 use crate::animation::primitives::{clear_buffer, draw_line, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const M_PI: f32 = PI;
 const PI_RAD: f32 = M_PI / 180.0;
@@ -799,8 +799,8 @@ impl Animation for Crystal {
         self.target_cell_y = rng.random_range(0..self.ny.max(1));
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

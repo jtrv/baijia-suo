@@ -32,7 +32,7 @@ use std::collections::HashSet;
 use std::f64::consts::PI;
 
 use crate::animation::primitives::{clear_buffer, draw_line, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const MAXCOLUMNS: i32 = 128;
 const MAXROWS: i32 = 128;
@@ -824,8 +824,8 @@ impl Animation for Life3D {
         self.reinit();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

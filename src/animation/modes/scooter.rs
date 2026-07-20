@@ -23,7 +23,7 @@
 //
 // Rust port of xlockmore/modes/scooter.c.
 
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use crate::animation::primitives::{draw_line, put_pixel, Color};
 use rand::Rng;
 
@@ -653,8 +653,8 @@ impl Animation for Scooter {
         self.rotation_step = 0;
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

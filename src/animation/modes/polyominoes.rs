@@ -20,7 +20,7 @@
 use rand::Rng;
 
 use crate::animation::primitives::{clear_buffer, draw_line, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 /// One puzzle-piece spec: (points, allowed transforms, max piece width).
 type PolyominoSpec<'a> = (&'a [(i32, i32)], &'a [i32], i32);
@@ -1674,8 +1674,12 @@ impl Animation for Polyominoes {
         self.init();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        !self.use_bitmaps
+    fn render_policy(&self) -> RenderPolicy {
+        if self.use_bitmaps {
+            RenderPolicy::Incremental
+        } else {
+            RenderPolicy::ClearThenRender
+        }
     }
 
     fn frame_delay_us(&self) -> u64 {

@@ -539,11 +539,6 @@ impl Animation for Discrete {
         self.init_params(&mut rng);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        // discrete accumulates points across many frames (like a slow-reveal
-        // attractor plot); it only clears when cycling to a new attractor.
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us

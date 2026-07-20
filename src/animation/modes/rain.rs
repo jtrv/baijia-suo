@@ -40,7 +40,7 @@
 use rand::Rng;
 
 use crate::animation::primitives::{draw_line, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const MAX_RADIUS: i32 = 25;
 
@@ -382,11 +382,8 @@ impl Animation for Rain {
         }
     }
 
-    fn clears_each_frame(&self) -> bool {
-        // xlockmore is incremental (DrawLine in black to erase, then DrawLine
-        // in color), but a full clear produces the same image since only the
-        // current frame's lines and ellipses are ever visible.
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

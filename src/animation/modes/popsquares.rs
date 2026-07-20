@@ -12,7 +12,7 @@
  */
 
 use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use rand::Rng;
 
 // defaults from popsquares.c: *delay: 25000, *subdivision: 5, *border: 1,
@@ -216,8 +216,8 @@ impl Animation for PopSquares {
         self.reshape(config.width, config.height);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

@@ -414,9 +414,6 @@ impl Animation for Intermomentary {
         self.init_field(config);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us

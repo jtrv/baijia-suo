@@ -21,7 +21,7 @@
 use rand::Rng;
 use std::f32::consts::PI;
 use crate::animation::primitives::{put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const MINSIZE: i32 = 20;
 const MINBUBBLES: i32 = 1;
@@ -301,8 +301,8 @@ impl Animation for Bubble {
         self.colors = rng.random_range(0..self.ncolors.max(1) as u32) as f32;
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

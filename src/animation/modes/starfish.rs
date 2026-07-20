@@ -15,7 +15,7 @@
 use rand::Rng;
 use std::f64::consts::PI;
 use crate::animation::primitives::{put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const SCALE: f64 = 1000.0;
 
@@ -449,8 +449,12 @@ impl Animation for Starfish {
         fill_polygon(buffer, width, height, &points, color);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        self.blob_p
+    fn render_policy(&self) -> RenderPolicy {
+        if self.blob_p {
+            RenderPolicy::ClearThenRender
+        } else {
+            RenderPolicy::Incremental
+        }
     }
 
     fn frame_delay_us(&self) -> u64 {

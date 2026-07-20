@@ -18,7 +18,7 @@
 
 use rand::Rng;
 use crate::animation::primitives::{put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const X_LIMIT: f32 = 400.0;
 const Y_LIMIT: f32 = 300.0;
@@ -276,8 +276,8 @@ impl Animation for Space {
         self.delay_us = config.delay_us;
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

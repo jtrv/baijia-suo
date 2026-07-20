@@ -19,7 +19,7 @@
 use rand::Rng;
 use std::f64::consts::PI;
 use crate::animation::primitives::{put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 include!("bounce_bitmaps.rs");
 
@@ -370,8 +370,8 @@ impl Animation for Bounce {
         }
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

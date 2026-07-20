@@ -871,9 +871,6 @@ impl Animation for Euler2D {
         self.init_euler2d();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         DEF_DELAY_US

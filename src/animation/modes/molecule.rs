@@ -52,7 +52,7 @@
  */
 
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use rand::Rng;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -873,8 +873,8 @@ impl Animation for Molecule {
         }
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
     fn frame_delay_us(&self) -> u64 {
         self.delay_us.max(10_000)

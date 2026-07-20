@@ -24,7 +24,7 @@
 use crate::animation::primitives::{
     clear_buffer, draw_circle, draw_line, hsv_to_rgb, put_pixel, rgb16, Color,
 };
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use rand::Rng;
 
 const ALIVE: u8 = 1;
@@ -550,8 +550,8 @@ impl Animation for BoxFit {
         self.reset_boxes(&mut rng);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::CompleteFrame
     }
 
     fn frame_delay_us(&self) -> u64 {

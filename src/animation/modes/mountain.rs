@@ -431,12 +431,6 @@ impl Animation for Mountain {
         self.init_terrain();
     }
 
-    /// Mountain draws incrementally (one quad per tick), never clearing per frame
-    /// unless it just reinitialised.  The `DrawOp::Clear` entry in `draw_ops`
-    /// handles the one-shot clear after reinit.
-    fn clears_each_frame(&self) -> bool {
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us

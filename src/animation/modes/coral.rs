@@ -12,7 +12,7 @@
  */
 
 use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use rand::Rng;
 
 // defaults from coral.c: *density: 25, *seeds: 20, *delay: 5 (seconds),
@@ -273,8 +273,8 @@ impl Animation for Coral {
         *self = Self::new(config);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::CompleteFrame
     }
 
     fn frame_delay_us(&self) -> u64 {

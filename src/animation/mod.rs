@@ -38,6 +38,22 @@ impl Default for AnimConfig {
     }
 }
 
+/// How a mode's `render()` relates to its `tick()`s — the player's
+/// scheduling contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RenderPolicy {
+    /// `render()` consumes per-tick state (op queues, dirty lists): tick and
+    /// render must stay paired 1:1. The safe default.
+    Incremental,
+    /// `render()` redraws the complete current state onto a cleared buffer:
+    /// ticks may be batched, then the player clears and renders once.
+    ClearThenRender,
+    /// `render()` overwrites the full frame from a self-contained canvas:
+    /// ticks may be batched and no clear is needed — batching skips
+    /// intermediate full-canvas copies that could never be presented.
+    CompleteFrame,
+}
+
 /// The core animation trait.
 pub trait Animation: Send {
     /// Create a new animation instance.
@@ -54,9 +70,9 @@ pub trait Animation: Send {
     /// Reset the animation state.
     fn reset(&mut self, config: &AnimConfig);
 
-    /// Returns true if the animation clears the screen each frame.
-    fn clears_each_frame(&self) -> bool {
-        false
+    /// The tick/render scheduling contract for this mode.
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::Incremental
     }
 
     /// The target delay between frames in microseconds.

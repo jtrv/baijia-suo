@@ -27,7 +27,7 @@ use rand::Rng;
 use std::f32::consts::PI;
 
 use crate::animation::primitives::{put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const TWOPI: f32 = 2.0 * PI;
 
@@ -546,12 +546,8 @@ impl Animation for Pyro {
         self.just_started = true;
     }
 
-    fn clears_each_frame(&self) -> bool {
-        // xlockmore is incremental (it erases old positions to MI_BLACK_PIXEL
-        // and redraws new ones). Clearing every frame produces an identical
-        // image — only the current frame's rockets and stars are ever visible
-        // either way — and is simpler with our render pipeline.
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

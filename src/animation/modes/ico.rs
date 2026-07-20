@@ -20,7 +20,7 @@
 use rand::Rng;
 use std::f64::consts::PI;
 use crate::animation::primitives::{draw_line, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const MAXVERTS: usize = 120;
 const POLYSIZE: usize = 9;
@@ -680,8 +680,8 @@ impl Animation for Ico {
         self.init_poly(true);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

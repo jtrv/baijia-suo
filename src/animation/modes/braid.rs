@@ -17,7 +17,7 @@
 // Rust port of xlockmore/modes/braid.c.
 
 use crate::animation::primitives::{draw_thick_line, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use rand::Rng;
 use std::f32::consts::PI;
 
@@ -378,8 +378,8 @@ impl Animation for Braid {
         self.init_braid();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

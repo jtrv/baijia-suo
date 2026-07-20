@@ -18,7 +18,7 @@
 
 use rand::Rng;
 use std::f64::consts::PI;
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use crate::animation::primitives::{draw_line, Color};
 
 const XVMAX: i32 = 10;
@@ -198,8 +198,8 @@ impl Animation for Lisa {
         self.loopcount = 0;
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

@@ -16,7 +16,7 @@ use rand::Rng;
 use std::f64::consts::PI;
 
 use crate::animation::primitives::{draw_thick_line, make_smooth_colormap, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const TWO_PI: f64 = 2.0 * PI;
 
@@ -292,8 +292,8 @@ impl Animation for Anemone {
         }
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

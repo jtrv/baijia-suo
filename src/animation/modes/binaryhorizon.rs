@@ -26,7 +26,7 @@
  * Rust port of xscreensaver's binaryhorizon.c for baijia-suo.
  */
 
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use rand::Rng;
 use std::time::Instant;
 
@@ -414,8 +414,8 @@ impl Animation for BinaryHorizon {
         self.clear_buffer_black();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::CompleteFrame
     }
 
     fn frame_delay_us(&self) -> u64 {

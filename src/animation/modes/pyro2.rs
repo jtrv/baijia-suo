@@ -21,7 +21,7 @@ use rand::Rng;
 use std::sync::OnceLock;
 
 use crate::animation::primitives::{draw_line, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const EXP_MAX_GENERATION: i32 = 30;
 const EXP_MAX_TTL: i32 = 200;
@@ -484,8 +484,8 @@ impl Animation for Pyro2 {
         self.init_pyros();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

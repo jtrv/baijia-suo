@@ -20,7 +20,7 @@ use rand::Rng;
 use std::cell::RefCell;
 
 use crate::animation::primitives::{put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 // ---- Katakana glyph atlas (kept verbatim from xlockmore port) -------------
 //
@@ -493,8 +493,8 @@ impl Animation for Matrix {
         self.columns = RefCell::new(cols);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

@@ -542,9 +542,6 @@ impl Animation for Blaster {
         clear_buffer(&mut self.canvas, BLACK);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us

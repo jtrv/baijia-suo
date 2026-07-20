@@ -18,7 +18,7 @@ use rand::Rng;
 use std::time::Instant;
 
 use crate::animation::primitives::{put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 fn fill_circle(buffer: &mut [u8], width: u32, height: u32, cx: i32, cy: i32, r: i32, color: Color) {
     for dy in -r..=r {
@@ -352,8 +352,8 @@ impl Animation for FluidBalls {
         self.opy = self.py.clone();
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

@@ -17,7 +17,7 @@
 // Rust port of xlockmore/modes/lightning.c.
 
 use rand::Rng;
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use crate::animation::primitives::{draw_line, Color};
 
 const BOLT_NUMBER: usize = 4;
@@ -548,8 +548,8 @@ impl Animation for Lightning {
         }
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

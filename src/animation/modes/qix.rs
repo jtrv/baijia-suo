@@ -19,7 +19,7 @@
 use rand::Rng;
 use std::collections::VecDeque;
 use crate::animation::primitives::{draw_line, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const MINPOINTS: usize = 2;
 
@@ -359,8 +359,8 @@ impl Animation for Qix {
         }
     }
 
-    fn clears_each_frame(&self) -> bool {
-        true
+    fn render_policy(&self) -> RenderPolicy {
+        RenderPolicy::ClearThenRender
     }
 
     fn frame_delay_us(&self) -> u64 {

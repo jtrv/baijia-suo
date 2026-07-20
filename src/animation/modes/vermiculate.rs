@@ -19,7 +19,7 @@
 use rand::Rng;
 
 use crate::animation::primitives::{hsv_to_rgb, put_pixel, Color};
-use crate::animation::{AnimConfig, Animation};
+use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const DEGS: i32 = 360;
 const DEGS2: i32 = DEGS / 2;
@@ -1265,9 +1265,12 @@ impl Animation for Vermiculate {
         self.delay_us = 10_000;
     }
 
-    fn clears_each_frame(&self) -> bool {
-        // pscale > 1 keeps the legacy scan-into-cleared-buffer path.
-        self.pscale != 1
+    fn render_policy(&self) -> RenderPolicy {
+        if self.pscale != 1 {
+            RenderPolicy::ClearThenRender
+        } else {
+            RenderPolicy::CompleteFrame
+        }
     }
 
     fn frame_delay_us(&self) -> u64 {

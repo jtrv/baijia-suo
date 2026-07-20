@@ -415,9 +415,6 @@ impl Animation for Petri {
         self.randblip(true);
     }
 
-    fn clears_each_frame(&self) -> bool {
-        false
-    }
 
     fn frame_delay_us(&self) -> u64 {
         10_000 // match xlockmore default
