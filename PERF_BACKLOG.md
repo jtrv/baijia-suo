@@ -152,7 +152,7 @@ reset bug), three-state `RenderPolicy` (CompleteFrame batching for 9 audited
 canvas modes), DoublePool bounded at 3, piecewise/starfish/noof mode-local
 wins. Full comparison: `reports/animation-review.html`.
 
-### 16. Damage contract + direct-to-shm — `in-progress`
+### 16. Damage contract + direct-to-shm — `16a done; 16b deferred (low ROI)`
 The remaining big one (subsumes #5 and #15, both reviews agree). A
 `damage()` hint on the Animation trait feeding `blit_into` and
 `damage_buffer` with per-buffer generation tracking; render
@@ -174,8 +174,41 @@ with 199 us median advance and 1354 us median presentation. The 310-sample
 sleep/wake run held a 60 fps median with 5001 us median advance and 1362 us
 median presentation; its one partial 42 fps interval recovered immediately.
 These confirm that full-frame presentation/copy is material, especially for
-cheap modes. Stage 16b remains: render eligible animation frames directly into
-SHM without breaking the canonical frame shared by equal-sized outputs.
+cheap modes.
+
+**Stage 16b — DEFERRED, measured low ROI (2026-07-20).** After 16a shipped
+and the Criterion baseline landed, a topology + budget analysis reframed 16b's
+value downward:
+
+- Nothing is frame-bound. At 1080p60 the frame budget is 16,666 us. Petri
+  uses ~1.3 us sim + ~345 us blit ≈ 400 us (2.4% of budget); binaryring
+  ~679 us advance + ~345 us blit ≈ 1024 us (6%). 16b improves battery/CPU,
+  NOT smoothness — nothing is dropping frames.
+- The remaining cost is memcpy (bandwidth-bound, ~20 GB/s at 1080p). Saving
+  it is ~345 us/frame × 60 = ~2% of one core during ACTIVE display only.
+  When the display is off (most of a locker's life) frame-callback
+  throttling already zeros it, and low-power mode zeros it on battery.
+- Both implementation paths have catches:
+  - CompleteFrame direct-to-shm (binaryring et al.) conflicts with 16a's
+    indicator restore, which reads the canonical player buffer to repaint
+    under the old indicator. Direct-to-shm removes that buffer, so
+    indicator-only frames would have nothing to restore from — reconciling
+    needs a "read-rect-from-mode-canvas" path or giving up indicator partial
+    damage for those modes.
+  - Incremental partial-blit (petri, the copy-bound smoking gun) needs
+    per-generation damage history (target SHM buffers are ~2 generations
+    stale under rotation), AND petri's per-tick damage is a spatially spread
+    growth front whose bounding box is often near-full-screen — so a
+    bbox-based partial blit may not help petri much anyway. Would need
+    span/multi-rect damage + measurement of actual damage extent first.
+
+Verdict: the optimization phase has hit diminishing returns. The large wins
+are shipped (RenderPolicy batching, incremental petri/polyominoes, BGRA
+canvases, bounded pool, frame-callback throttling, low-power suspend, 16a
+gen-caching + indicator partial damage). 16b is a modest active-display-only
+battery save with real render-path risk and two design catches. Revisit only
+if a profiler on real target hardware shows active-display CPU is a battery
+problem, or if HiDPI (item 10) makes the 4x-larger 4K blit frame-bound.
 
 ### 17. tick() -> next-delay API — `todo`
 The pre-tick/post-tick frame_delay_us() re-read in the player is a patch;
