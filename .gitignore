@@ -41,3 +41,4 @@ rustc-ice-*.txt
 # PDB molecule data (not MSVC debug symbols)
 !src/animation/modes/molecules.pdb
 logs/
+.visual-test.kdl
