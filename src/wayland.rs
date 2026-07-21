@@ -297,7 +297,25 @@ impl WaylandState {
             // The configure size is logical; render into a buffer scaled up to
             // device pixels and tell the compositor its scale, so HiDPI output
             // is crisp rather than upscaled from a 1x buffer.
-            let (pw, ph) = (lw * scale, lh * scale);
+            //
+            // These dimensions come from the compositor (a trusted component,
+            // but a broken one can send garbage). Reject anything whose device
+            // buffer would overflow rather than panicking downstream — a
+            // locker crash exposes the desktop. Validating the byte size here,
+            // where the untrusted values enter, proves it fits for every
+            // downstream allocation (pool, player), so those need no checks.
+            let Some((pw, ph)) = lw
+                .checked_mul(scale)
+                .zip(lh.checked_mul(scale))
+                .filter(|&(pw, ph)| {
+                    pw.checked_mul(ph)
+                        .and_then(|px| px.checked_mul(4))
+                        .is_some()
+                })
+            else {
+                log::error!("draw: output {id} has invalid buffer dimensions; skipping");
+                continue;
+            };
 
             let info = self.outputs.get_mut(&id).unwrap();
             let last_committed_indicator = info.last_committed_indicator;
@@ -1050,10 +1068,17 @@ pub fn run_wayland(app: App) -> Result<(), Box<dyn std::error::Error>> {
                 event_queue.dispatch_pending(&mut state)?;
             }
             Some(read_guard) => {
+                // Block until the next real deadline, or indefinitely when
+                // none is armed (idle locker, display off). poll wakes on
+                // Wayland socket activity (POLLIN) or a signal (EINTR), and
+                // the idle state has nothing else to service — auth results
+                // ride the indicator timer during verification. The old
+                // 100 ms ceiling was pure wakeup waste (~10/s while asleep,
+                // preventing deeper CPU sleep for a locker left overnight).
                 let timeout_ms = state
                     .next_timer_ms()
-                    .map(|ms| ms.min(100) as libc::c_int) // cap at 100 ms
-                    .unwrap_or(100);
+                    .map(|ms| ms.min(i32::MAX as u64) as libc::c_int)
+                    .unwrap_or(-1);
 
                 let wayland_fd = read_guard.connection_fd().as_raw_fd();
                 let mut fds = [libc::pollfd {

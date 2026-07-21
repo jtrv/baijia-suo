@@ -287,9 +287,14 @@ impl AnimationPlayer {
             return Ok(());
         };
         let n = (width * height * 4) as usize;
-        if dst.len() >= n && buf.len() >= n {
-            dst[..n].copy_from_slice(&buf[..n]);
+        // Error rather than silently no-op on a size mismatch (matches
+        // blit_rect_into). A silent skip here would be recorded upstream as
+        // a fresh full frame, leaving stale pixels the cache then declines
+        // to repaint.
+        if dst.len() < n || buf.len() < n {
+            return Err("animation buffer is smaller than its surface".into());
         }
+        dst[..n].copy_from_slice(&buf[..n]);
         Ok(())
     }
 
