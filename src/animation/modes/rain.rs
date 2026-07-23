@@ -44,15 +44,33 @@ use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
 const MAX_RADIUS: i32 = 25;
 
+// HiDPI size: xlockmore's 25px splash filled a chunky fraction of an era
+// ~480px-tall CRT; on a tall modern panel the same pixel radius reads as tiny.
+// Scale the splash radius with panel height, never below the era size.
+// ponytail: linear height scale, tune the 720 divisor if splashes feel off.
+fn scaled_max_radius(height: u32) -> i32 {
+    (MAX_RADIUS * height.max(720) as i32 / 720).max(MAX_RADIUS)
+}
+
+// Streak thickness, same HiDPI reasoning as the splash: a 1px line is nearly
+// invisible on a tall modern panel. Streaks are near-vertical, so we draw
+// this many parallel lines offset horizontally to read as width.
+// ponytail: 1px per 720px of height; tune the divisor if streaks feel off.
+fn streak_thickness(height: u32) -> i32 {
+    (height as i32 / 720).max(1)
+}
+
 #[derive(Clone)]
 struct Drop {
     // Line endpoints. The line is drawn from (x0, y0) to (x1, y1) each frame
-    // and the head (x1, y1) advances by (direction * offset_x, offset_y); the
+    // and the head (x1, y1) advances by (offset_x, offset_y); the
     // trailing point (x0, y0) takes on the previous head's position.
     x0: i32,
     y0: i32,
     x1: i32,
     y1: i32,
+    // Per-drop step magnitudes; the storm `direction` is applied to offset_x
+    // at each advance.
     offset_x: i32,
     offset_y: i32,
     // Pool depth — y coordinate at which the drop transitions from falling to
@@ -124,8 +142,9 @@ fn init_drop(
     rng: &mut impl Rng,
 ) {
     // Where in the lower 4/5 of the screen does the splash land?
+    let max_radius = scaled_max_radius(height);
     let y_min = (height / 5) as i32;
-    let y_max = (height as i32) - ((MAX_RADIUS * 3) / 2);
+    let y_max = (height as i32) - ((max_radius * 3) / 2);
     let y_range = (y_max - y_min).max(1);
     drop.pool_y = y_min + rng.random_range(0..y_range);
 
@@ -146,7 +165,7 @@ fn init_drop(
 
     drop.radius = 0;
     drop.radius_step = 1 + rng.random_range(0..2);
-    drop.max_radius = (MAX_RADIUS / 2) + rng.random_range(0..(MAX_RADIUS / 2));
+    drop.max_radius = (max_radius / 2) + rng.random_range(0..(max_radius / 2).max(1));
 
     if colored_drops {
         if let Some(hue) = base_color {
@@ -239,18 +258,14 @@ fn draw_ellipse(
     }
 }
 
-// True if a drop is still falling (vs splashing). xlockmore: the head x must
-// stay clear of both screen edges by `max_radius` so the eventual splash
-// ellipse fits on screen, AND the head y must not yet have reached pool_y.
 // True if a drop is still falling (vs splashing).
 //
 // Deviation from xlockmore: the C also required the head x to stay
 // `max_radius` clear of both screen edges so the splash ellipse would fit
 // on screen — with the side effect that a drop drifting near an edge
 // splashed instantly at whatever height it was, reading as a mid-air
-// circle. Our drawing clips per-pixel, so edge drops can keep falling to
-// their pool depth and splash there (partly off-screen splashes clip
-// harmlessly).
+// circle. Our drawing clips per-pixel, so edge drops keep falling to their
+// pool depth and splash there (partly off-screen splashes clip harmlessly).
 fn is_falling(drop: &Drop, _width: i32) -> bool {
     drop.y1 < drop.pool_y
 }
@@ -292,6 +307,8 @@ impl Animation for Rain {
         for drop in &mut self.drops {
             if is_falling(drop, width_i32) {
                 // Trail follows head; head advances by (direction*ox, oy).
+                // Drops that drift off a side edge keep falling and splash at
+                // their pool depth; the per-pixel clip handles off-screen.
                 drop.x0 = drop.x1;
                 drop.y0 = drop.y1;
                 drop.x1 += direction * drop.offset_x;
@@ -316,18 +333,23 @@ impl Animation for Rain {
 
     fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
         let width_i32 = width as i32;
+        let thickness = streak_thickness(height);
         for drop in &self.drops {
             if is_falling(drop, width_i32) {
-                draw_line(
-                    buffer,
-                    width,
-                    height,
-                    drop.x0,
-                    drop.y0,
-                    drop.x1,
-                    drop.y1,
-                    drop.color,
-                );
+                // Parallel lines offset horizontally, centered on the streak.
+                for off in 0..thickness {
+                    let dx = off - thickness / 2;
+                    draw_line(
+                        buffer,
+                        width,
+                        height,
+                        drop.x0 + dx,
+                        drop.y0,
+                        drop.x1 + dx,
+                        drop.y1,
+                        drop.color,
+                    );
+                }
             } else {
                 // xlockmore quirk: ellipse center is (drop.drop.x, drop.drop.y)
                 // = (x0, y1) — the trailing endpoint's x with the head

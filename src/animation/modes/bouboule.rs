@@ -295,12 +295,21 @@ impl Animation for Bouboule {
 
         let amp = nrand(&mut rng, 3142) as f64 / 1000.0;
         let freq = PI / (nrand(&mut rng, 100) as f64 + 100.0);
+        // Clamp the field basis to a 16:9 width so the ball keeps era
+        // proportions on ultrawide (same fix as life3d). The center roam and
+        // the z/radius bases all derive from this basis, not the raw width, so
+        // on 21:9 the ball stays in a centered 16:9 region and round, instead
+        // of wandering a full-width band at a 16:9-capped size (the old
+        // "inconsistent scaling" look). On true 16:9, wbasis == width and the
+        // roam is [width/4, 3*width/4] — identical to upstream.
+        let wbasis = (self.width.min(self.height * 16 / 9)) as f64;
+        let x_center = self.width as f64 / 2.0;
         self.x = SinVariable::new(
             &mut rng,
             amp,
             freq,
-            (self.width as f64) / 4.0,
-            3.0 * (self.width as f64) / 4.0,
+            x_center - wbasis / 4.0,
+            x_center + wbasis / 4.0,
             POSCANRAND,
         );
         let amp = nrand(&mut rng, 3142) as f64 / 1000.0;
@@ -313,11 +322,6 @@ impl Animation for Bouboule {
             3.0 * (self.height as f64) / 4.0,
             POSCANRAND,
         );
-        // z range and x radius derive from raw width in the C, which balloons
-        // the ball on ultrawide; clamp the basis to a 16:9 width (same fix as
-        // life3d). The edge-distance min() below still uses the real width so
-        // the ball never overruns the sides.
-        let wbasis = (self.width.min(self.height * 16 / 9)) as f64;
         let amp = nrand(&mut rng, 3142) as f64 / 1000.0;
         let freq = PI / (nrand(&mut rng, 100) as f64 + 100.0);
         self.z = SinVariable::new(

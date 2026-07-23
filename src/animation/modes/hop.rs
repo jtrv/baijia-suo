@@ -20,7 +20,7 @@
 // Ed Kubaitis (EJK) variants, Renaldo Recuerdo (RR) generalised-exponent, and
 // Clifford Pickover's Popcorn map.
 
-use crate::animation::primitives::{put_pixel, Color};
+use crate::animation::primitives::{clear_buffer, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
 use rand::Rng;
 use std::f64::consts::PI;
@@ -103,6 +103,7 @@ pub struct Hop {
 
     // pending pixel operations filled by tick(), drained by render()
     pending: Vec<DrawOp>,
+    clear_pending: bool,
 
     delay_us: u64,
 }
@@ -401,6 +402,7 @@ impl Animation for Hop {
             cycles,
             bufsize,
             pending: Vec::with_capacity(bufsize as usize),
+            clear_pending: false,
             delay_us: config.delay_us,
         };
         hop.randomize();
@@ -409,6 +411,7 @@ impl Animation for Hop {
 
     fn tick(&mut self) {
         self.pending.clear();
+        self.clear_pending = false;
 
         // draw_hop increments inc once per call, before the point loop
         self.inc += 1;
@@ -430,16 +433,21 @@ impl Animation for Hop {
             self.iterate_one(color);
         }
 
-        // Cycle check: if count > cycles, re-randomise (mirrors init_hop call)
+        // xlockmore checks `++count > cycles` after drawing, then init_hop
+        // clears the window and re-randomises the attractor.
         self.count += 1;
         if self.count > self.cycles {
             self.randomize();
+            self.clear_pending = true;
         }
     }
 
     fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
         for op in &self.pending {
             put_pixel(buffer, width, height, op.x, op.y, op.color);
+        }
+        if self.clear_pending {
+            clear_buffer(buffer, Color::new(255, 0, 0, 0));
         }
     }
 
@@ -453,11 +461,38 @@ impl Animation for Hop {
         self.cycles = if config.cycles == 0 { 2500 } else { config.cycles };
         self.delay_us = config.delay_us;
         self.pending.clear();
+        self.clear_pending = false;
         self.randomize();
     }
 
 
     fn frame_delay_us(&self) -> u64 {
         self.delay_us
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clears_after_upstream_cycle_boundary() {
+        let config = AnimConfig {
+            width: 8,
+            height: 8,
+            count: 1,
+            cycles: 1,
+            ..AnimConfig::default()
+        };
+        let mut hop = Hop::new(&config);
+        let mut buffer = vec![255; 8 * 8 * 4];
+
+        for _ in 0..2 {
+            hop.tick();
+            hop.render(&mut buffer, 8, 8);
+        }
+
+        assert!(buffer.chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 255]));
+        assert_eq!(hop.count, 0);
     }
 }

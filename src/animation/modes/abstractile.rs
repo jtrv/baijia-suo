@@ -2163,9 +2163,8 @@ impl Animation for Abstractile {
             /* finished drawing: linger on the mosaic, as the C does */
             SLEEP as u64 * 1_000_000
         } else if self.mode == Mode::Create {
-            /* mid-create slice; the C spends this time inside one blocking
-            call, so keep the gaps between slices negligible */
-            1_000
+            /* Present at most one resumable slice per display frame. */
+            16_666
         } else {
             ((5 - SPEED) * (2 - self.dialog) * 100_000 / self.lpu.max(1) as i32).max(0) as u64
         };
