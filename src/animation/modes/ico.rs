@@ -27,7 +27,21 @@ const POLYSIZE: usize = 9;
 const MINSIZE: i32 = 5;
 const DEFAULT_DELTAX: i32 = 13;
 const DEFAULT_DELTAY: i32 = 9;
-const DEFAULT_DELAY_US: u64 = 100_000;
+// Render at 60fps for smooth tumbling. Upstream ico.c ticks at 10fps and
+// rotates 5°/tick (50°/s); its slow clock beats against the 60Hz frame
+// callback and reads as stutter, and the 5° jumps look fast/chunky. We tick
+// 6x as often and scale per-tick rotation by 1/6, so real-time angular
+// velocity is unchanged but the motion is smooth.
+//
+// Tick a hair under the player's 16_666us REFRESH_US so it uses the
+// sub-refresh catch-up path (max_ticks > 1). At exactly 16_666 ico sat on
+// the knife-edge with max_ticks == 1: any frame callback that jittered even
+// a few us early produced a 0-tick frame (a repeated frame = visible
+// stutter) that the once-per-frame path could never catch up. The ~666us
+// margin covers normal callback jitter. ~62fps nominal; imperceptible.
+const ICO_FPS: u64 = 60;
+const ICO_TICK_US: u64 = 16_000;
+const FPS_SCALE: f64 = 10.0 / ICO_FPS as f64; // upstream 10fps → our 60fps
 
 #[derive(Clone, Copy, Default)]
 struct Point3D {
@@ -440,7 +454,6 @@ pub struct Ico {
     color_offset: usize,
     cycles: i32,
     ncolors: i32,
-    delay_us: u64,
 }
 
 impl Ico {
@@ -451,7 +464,7 @@ impl Ico {
         let mut r1 = [[0.0; 4]; 4];
         let mut r2 = [[0.0; 4]; 4];
 
-        let roll = 1.0 * PI / 180.0; // Scaled down by 5 for 50fps vs 10fps
+        let roll = 5.0 * FPS_SCALE * PI / 180.0;
 
         if (self.poly_delta_x < 0.0 && self.poly_delta_y < 0.0) || (self.poly_delta_x > 0.0 && self.poly_delta_y > 0.0) {
             format_rotate_mat('x', if self.poly_delta_x > 0.0 { -roll } else { roll }, &mut r1);
@@ -502,7 +515,6 @@ impl Animation for Ico {
             color_offset: 0,
             cycles: config.cycles,
             ncolors: config.ncolors,
-            delay_us: if config.delay_us == 0 { DEFAULT_DELAY_US } else { config.delay_us },
         };
         i.reset(config);
         i
@@ -657,6 +669,10 @@ impl Animation for Ico {
         self.poly_w = (self.width.min(self.height) / 4).max(MINSIZE as u32) as i32;
         self.poly_h = self.poly_w;
 
+        // Translation is deliberately NOT scaled by FPS_SCALE: rotation is
+        // matched to upstream's real-time angular velocity, but the
+        // drift/bounce reads better at the port's full 60fps px/tick rate
+        // (owner preference — upstream's true drift felt sluggish here).
         self.poly_delta_x = ((self.poly_w as f64 / DEFAULT_DELTAY as f64 + 1.0) / 6.0).round().max(1.0);
         self.poly_delta_y = ((self.poly_h as f64 / DEFAULT_DELTAX as f64 + 1.0) / 6.0).round().max(1.0);
 
@@ -685,6 +701,6 @@ impl Animation for Ico {
     }
 
     fn frame_delay_us(&self) -> u64 {
-        16_666 // Match 60fps monitor sync to eliminate 10Hz beat judder
+        ICO_TICK_US
     }
 }
