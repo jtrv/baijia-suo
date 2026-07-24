@@ -304,14 +304,14 @@ impl WaylandState {
             // locker crash exposes the desktop. Validating the byte size here,
             // where the untrusted values enter, proves it fits for every
             // downstream allocation (pool, player), so those need no checks.
-            let Some((pw, ph)) = lw
-                .checked_mul(scale)
-                .zip(lh.checked_mul(scale))
-                .filter(|&(pw, ph)| {
-                    pw.checked_mul(ph)
-                        .and_then(|px| px.checked_mul(4))
-                        .is_some()
-                })
+            let Some((pw, ph)) =
+                lw.checked_mul(scale)
+                    .zip(lh.checked_mul(scale))
+                    .filter(|&(pw, ph)| {
+                        pw.checked_mul(ph)
+                            .and_then(|px| px.checked_mul(4))
+                            .is_some()
+                    })
             else {
                 log::error!("draw: output {id} has invalid buffer dimensions; skipping");
                 continue;
