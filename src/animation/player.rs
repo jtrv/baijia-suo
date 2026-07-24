@@ -7,7 +7,7 @@
 //! defaults table. Callers (the Wayland event loop, `App::render_to_surface`)
 //! make no timing decisions of their own.
 
-use super::{primitives, AnimConfig, AnimRegistry, Animation, RenderPolicy};
+use super::{primitives, AnimConfig, AnimRegistry, Animation, Pacing, RenderPolicy};
 use crate::render::DamageRect;
 use std::time::{Duration, Instant};
 
@@ -140,6 +140,47 @@ impl AnimationPlayer {
         // arithmetic: capped fast modes catch up within each longer frame,
         // so rendering slows but simulation speed doesn't.
         let sched_us = delay_us.max(self.min_delay_us);
+
+        if self.animation.pacing() == Pacing::Continuous {
+            // Continuous modes are a function of elapsed time: integrate the
+            // measured interval and render. Presentation cadence is owned by
+            // the compositor — `next_wake` is armed immediately (or at the
+            // max_fps floor), so the next frame callback authorizes the next
+            // draw and the animation runs at whatever rate the output
+            // actually refreshes (60/120/VRR). No busy loop: the event loop
+            // only polls this wake while a surface is ready, and every
+            // commit sets frame_pending until the compositor calls back.
+            //
+            // Clamp one integration step so a display-off / suspend gap
+            // doesn't teleport the state. Time beyond the clamp is
+            // deliberately dropped (matches the fixed path's backlog drop);
+            // sustained >100ms frames therefore run slowed rather than
+            // jumping — the right failure mode for a decorative locker.
+            // ponytail: subdivide the step instead if a future continuous
+            // mode needs collision fidelity across long gaps.
+            const MAX_DT: Duration = Duration::from_millis(100);
+            let dt = self
+                .last_tick
+                .map_or(Duration::from_micros(delay_us), |last| {
+                    now.duration_since(last)
+                })
+                .min(MAX_DT);
+
+            self.animation.tick_dt(dt);
+            let mut changed = false;
+            if let (Some((w, h)), Some(buf)) = (self.surface_size, self.buffer.as_mut()) {
+                if self.animation.render_policy() == RenderPolicy::ClearThenRender {
+                    primitives::clear_buffer(buf, self.background);
+                }
+                self.animation.render(buf, w, h);
+                self.dirty = false;
+                changed = true;
+            }
+
+            self.last_tick = Some(now);
+            self.next_wake = Some(now + Duration::from_micros(self.min_delay_us));
+            return changed;
+        }
 
         // Two tick policies:
         //

@@ -17,30 +17,23 @@
 // Rust port of xlockmore/modes/ico.c.
 
 #![allow(dead_code, unused_assignments)]
+use crate::animation::primitives::{draw_line, Color};
+use crate::animation::{AnimConfig, Animation, Pacing, RenderPolicy};
 use rand::Rng;
 use std::f64::consts::PI;
-use crate::animation::primitives::{draw_line, Color};
-use crate::animation::{AnimConfig, Animation, RenderPolicy};
+use std::time::Duration;
 
 const MAXVERTS: usize = 120;
 const POLYSIZE: usize = 9;
 const MINSIZE: i32 = 5;
 const DEFAULT_DELTAX: i32 = 13;
 const DEFAULT_DELTAY: i32 = 9;
-// Render at 60fps for smooth tumbling. Upstream ico.c ticks at 10fps and
-// rotates 5°/tick (50°/s); its slow clock beats against the 60Hz frame
-// callback and reads as stutter, and the 5° jumps look fast/chunky. We tick
-// 6x as often and scale per-tick rotation by 1/6, so real-time angular
-// velocity is unchanged but the motion is smooth.
-//
-// Tick a hair under the player's 16_666us REFRESH_US so it uses the
-// sub-refresh catch-up path (max_ticks > 1). At exactly 16_666 ico sat on
-// the knife-edge with max_ticks == 1: any frame callback that jittered even
-// a few us early produced a 0-tick frame (a repeated frame = visible
-// stutter) that the once-per-frame path could never catch up. The ~666us
-// margin covers normal callback jitter. ~62fps nominal; imperceptible.
+// Preserve the owner's tuned 60fps-era motion as per-second rates while the
+// compositor controls presentation cadence.
+// ponytail: 16ms is ico's calibration baseline; tune it only to change speed.
 const ICO_FPS: u64 = 60;
 const ICO_TICK_US: u64 = 16_000;
+const ICO_FRAME: Duration = Duration::from_micros(ICO_TICK_US);
 const FPS_SCALE: f64 = 10.0 / ICO_FPS as f64; // upstream 10fps → our 60fps
 
 #[derive(Clone, Copy, Default)]
@@ -75,28 +68,50 @@ fn format_rotate_mat(axis: char, angle: f64, m: &mut Transform3D) {
     let c = angle.cos();
     match axis {
         'x' => {
-            m[1][1] = c; m[2][2] = c;
-            m[1][2] = s; m[2][1] = -s;
+            m[1][1] = c;
+            m[2][2] = c;
+            m[1][2] = s;
+            m[2][1] = -s;
         }
         'y' => {
-            m[0][0] = c; m[2][2] = c;
-            m[2][0] = s; m[0][2] = -s;
+            m[0][0] = c;
+            m[2][2] = c;
+            m[2][0] = s;
+            m[0][2] = -s;
         }
         'z' => {
-            m[0][0] = c; m[1][1] = c;
-            m[0][1] = s; m[1][0] = -s;
+            m[0][0] = c;
+            m[1][1] = c;
+            m[0][1] = s;
+            m[1][0] = -s;
         }
         _ => {}
+    }
+}
+
+/// Reflect `pos` back into `[0, max]`, flipping `vel`'s direction per bounce.
+/// True reflection at the boundary (not mirroring around the old position),
+/// and loops so one large dt step crossing both edges still lands in range.
+fn reflect(pos: &mut f64, vel: &mut f64, max: f64) {
+    if max <= 0.0 {
+        *pos = 0.0;
+        return;
+    }
+    while *pos < 0.0 || *pos > max {
+        if *pos < 0.0 {
+            *pos = -*pos;
+            *vel = vel.abs();
+        } else {
+            *pos = 2.0 * max - *pos;
+            *vel = -vel.abs();
+        }
     }
 }
 
 fn concat_mat(l: &Transform3D, r: &Transform3D, m: &mut Transform3D) {
     for i in 0..4 {
         for j in 0..4 {
-            m[i][j] = l[i][0] * r[0][j]
-                    + l[i][1] * r[1][j]
-                    + l[i][2] * r[2][j]
-                    + l[i][3] * r[3][j];
+            m[i][j] = l[i][0] * r[0][j] + l[i][1] * r[1][j] + l[i][2] * r[2][j] + l[i][3] * r[3][j];
         }
     }
 }
@@ -454,24 +469,44 @@ pub struct Ico {
     color_offset: usize,
     cycles: i32,
     ncolors: i32,
+    /// Fractional baseline (16ms) ticks accumulated from dt, so the
+    /// shape-change cycle counts elapsed time, not calls — otherwise the
+    /// figure would swap faster on higher-refresh panels.
+    cycle_accum: f64,
 }
 
 impl Ico {
-    fn init_poly(&mut self, init: bool) {
+    fn init_poly(&mut self, init: bool, roll: f64) {
         let poly = &POLYGONS[self.object];
         let nv = poly.numverts;
 
         let mut r1 = [[0.0; 4]; 4];
         let mut r2 = [[0.0; 4]; 4];
 
-        let roll = 5.0 * FPS_SCALE * PI / 180.0;
-
-        if (self.poly_delta_x < 0.0 && self.poly_delta_y < 0.0) || (self.poly_delta_x > 0.0 && self.poly_delta_y > 0.0) {
-            format_rotate_mat('x', if self.poly_delta_x > 0.0 { -roll } else { roll }, &mut r1);
-            format_rotate_mat('y', if self.poly_delta_y < 0.0 { -roll } else { roll }, &mut r2);
+        if (self.poly_delta_x < 0.0 && self.poly_delta_y < 0.0)
+            || (self.poly_delta_x > 0.0 && self.poly_delta_y > 0.0)
+        {
+            format_rotate_mat(
+                'x',
+                if self.poly_delta_x > 0.0 { -roll } else { roll },
+                &mut r1,
+            );
+            format_rotate_mat(
+                'y',
+                if self.poly_delta_y < 0.0 { -roll } else { roll },
+                &mut r2,
+            );
         } else {
-            format_rotate_mat('x', if self.poly_delta_x < 0.0 { -roll } else { roll }, &mut r1);
-            format_rotate_mat('y', if self.poly_delta_y > 0.0 { -roll } else { roll }, &mut r2);
+            format_rotate_mat(
+                'x',
+                if self.poly_delta_x < 0.0 { -roll } else { roll },
+                &mut r1,
+            );
+            format_rotate_mat(
+                'y',
+                if self.poly_delta_y > 0.0 { -roll } else { roll },
+                &mut r2,
+            );
         }
 
         concat_mat(&r1, &r2, &mut self.xform);
@@ -515,50 +550,64 @@ impl Animation for Ico {
             color_offset: 0,
             cycles: config.cycles,
             ncolors: config.ncolors,
+            cycle_accum: 0.0,
         };
         i.reset(config);
         i
     }
 
     fn tick(&mut self) {
-        let _rng = rand::rng();
+        self.tick_dt(ICO_FRAME);
+    }
 
-        self.loopcount += 1;
+    fn pacing(&self) -> Pacing {
+        Pacing::Continuous
+    }
+
+    fn tick_dt(&mut self, dt: Duration) {
+        let tick_scale = dt.as_secs_f64() / ICO_FRAME.as_secs_f64();
+        let roll = 5.0 * FPS_SCALE * tick_scale * PI / 180.0;
+
+        // Shape-change cycle counts elapsed baseline ticks, not calls:
+        // rate-independent across 60/120/VRR and keystroke redraws.
+        self.cycle_accum += tick_scale;
+        while self.cycle_accum >= 1.0 {
+            self.cycle_accum -= 1.0;
+            self.loopcount += 1;
+        }
         if self.cycles > 0 && self.loopcount > self.cycles {
-            // Need a dummy config to reuse logic if we wanted, or just call reset with partial setup.
-            // In XLockMore, it does init_ico(mi).
-            // We'll just reset here.
-            
-            // XLockMore behavior: pick next object if count <= 0.
+            // XLockMore behavior (init_ico): pick the next object.
             self.object = (self.object + 1) % POLYSIZE;
             self.loopcount = 0;
-            self.init_poly(true);
+            self.init_poly(true, roll);
         }
 
         self.prev_x = self.curr_x;
         self.prev_y = self.curr_y;
 
-        self.curr_x += self.poly_delta_x;
-        if self.curr_x < 0.0 || self.curr_x + self.poly_w as f64 > self.width as f64 {
-            self.curr_x -= 2.0 * self.poly_delta_x;
-            self.poly_delta_x = -self.poly_delta_x;
-            self.init_poly(false);
-        }
+        self.curr_x += self.poly_delta_x * tick_scale;
+        reflect(
+            &mut self.curr_x,
+            &mut self.poly_delta_x,
+            (self.width as f64 - self.poly_w as f64).max(0.0),
+        );
 
-        self.curr_y += self.poly_delta_y;
-        if self.curr_y < 0.0 || self.curr_y + self.poly_h as f64 > self.height as f64 {
-            self.curr_y -= 2.0 * self.poly_delta_y;
-            self.poly_delta_y = -self.poly_delta_y;
-            self.init_poly(false);
-        }
+        self.curr_y += self.poly_delta_y * tick_scale;
+        reflect(
+            &mut self.curr_y,
+            &mut self.poly_delta_y,
+            (self.height as f64 - self.poly_h as f64).max(0.0),
+        );
+
+        self.init_poly(false, roll);
 
         let poly = &POLYGONS[self.object];
         let nv = poly.numverts;
 
         self.xv_buffer = 1 - self.xv_buffer;
-        
+
         let _prev_buf = 1 - self.xv_buffer;
-        
+
         let (src, dest) = if self.xv_buffer == 1 {
             let (first, second) = self.xv.split_at_mut(1);
             (&first[0], &mut second[0])
@@ -616,17 +665,15 @@ impl Animation for Ico {
                         drawn_edges[p1][p0] = true;
 
                         let color = if self.ncolors > 2 {
-                            let hue = (self.color_idx as f32 / self.ncolors as f32) + (i as f32 / nf as f32);
+                            let hue = (self.color_idx as f32 / self.ncolors as f32)
+                                + (i as f32 / nf as f32);
                             Color::from_hsl(hue.fract(), 1.0, 0.5)
                         } else {
                             Color::new(255, 255, 255, 255)
                         };
 
                         draw_line(
-                            buffer, width, height,
-                            v2[p0].0, v2[p0].1,
-                            v2[p1].0, v2[p1].1,
-                            color
+                            buffer, width, height, v2[p0].0, v2[p0].1, v2[p1].0, v2[p1].1, color,
                         );
                     }
                 }
@@ -642,10 +689,7 @@ impl Animation for Ico {
                             Color::new(255, 255, 255, 255)
                         };
                         draw_line(
-                            buffer, width, height,
-                            v2[p0].0, v2[p0].1,
-                            v2[p0].0, v2[p0].1,
-                            color
+                            buffer, width, height, v2[p0].0, v2[p0].1, v2[p0].0, v2[p0].1, color,
                         );
                     }
                 }
@@ -670,11 +714,15 @@ impl Animation for Ico {
         self.poly_h = self.poly_w;
 
         // Translation is deliberately NOT scaled by FPS_SCALE: rotation is
-        // matched to upstream's real-time angular velocity, but the
-        // drift/bounce reads better at the port's full 60fps px/tick rate
+        // matched to upstream's real-time angular velocity (looked right), but
+        // the drift/bounce reads better at the port's full 60fps px/tick rate
         // (owner preference — upstream's true drift felt sluggish here).
-        self.poly_delta_x = ((self.poly_w as f64 / DEFAULT_DELTAY as f64 + 1.0) / 6.0).round().max(1.0);
-        self.poly_delta_y = ((self.poly_h as f64 / DEFAULT_DELTAX as f64 + 1.0) / 6.0).round().max(1.0);
+        self.poly_delta_x = ((self.poly_w as f64 / DEFAULT_DELTAY as f64 + 1.0) / 6.0)
+            .round()
+            .max(1.0);
+        self.poly_delta_y = ((self.poly_h as f64 / DEFAULT_DELTAX as f64 + 1.0) / 6.0)
+            .round()
+            .max(1.0);
 
         self.curr_x = rng.random_range(0..((self.width as i32 - self.poly_w).max(1))) as f64;
         self.curr_y = rng.random_range(0..((self.height as i32 - self.poly_h).max(1))) as f64;
@@ -685,7 +733,11 @@ impl Animation for Ico {
         self.loopcount = 0;
 
         // Choose random object if count <= 0
-        self.object = if config.count <= 0 { rng.random_range(0..POLYSIZE) } else { config.count as usize % POLYSIZE };
+        self.object = if config.count <= 0 {
+            rng.random_range(0..POLYSIZE)
+        } else {
+            config.count as usize % POLYSIZE
+        };
 
         if self.ncolors > 2 {
             self.color_idx = rng.random_range(0..self.ncolors as usize);
@@ -693,7 +745,7 @@ impl Animation for Ico {
 
         self.color_offset = rng.random_range(0..self.ncolors.max(1) as usize);
 
-        self.init_poly(true);
+        self.init_poly(true, 5.0 * FPS_SCALE * PI / 180.0);
     }
 
     fn render_policy(&self) -> RenderPolicy {
@@ -702,5 +754,112 @@ impl Animation for Ico {
 
     fn frame_delay_us(&self) -> u64 {
         ICO_TICK_US
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_dt_preserves_translation_distance() {
+        let config = AnimConfig {
+            width: 1920,
+            height: 1080,
+            cycles: 0,
+            ..AnimConfig::default()
+        };
+        let mut split = Ico::new(&config);
+        let mut whole = Ico::new(&config);
+        for ico in [&mut split, &mut whole] {
+            ico.curr_x = 500.0;
+            ico.curr_y = 400.0;
+            ico.poly_delta_x = 4.0;
+            ico.poly_delta_y = -3.0;
+        }
+
+        for _ in 0..4 {
+            split.tick_dt(Duration::from_millis(4));
+        }
+        whole.tick_dt(Duration::from_millis(16));
+
+        assert!((split.curr_x - whole.curr_x).abs() < f64::EPSILON);
+        assert!((split.curr_y - whole.curr_y).abs() < f64::EPSILON);
+    }
+
+    // The Pacing::Continuous contract: tick_dt must actually advance state.
+    // Guards against declaring Continuous while leaving the default no-op
+    // tick_dt (which would freeze the mode but keep rendering).
+    #[test]
+    fn continuous_modes_override_tick_dt() {
+        let config = AnimConfig {
+            width: 1920,
+            height: 1080,
+            cycles: 0,
+            ..AnimConfig::default()
+        };
+        let mut ico = Ico::new(&config);
+        assert!(ico.pacing() == Pacing::Continuous);
+        ico.curr_x = 500.0;
+        ico.curr_y = 400.0;
+        ico.poly_delta_x = 4.0;
+        ico.poly_delta_y = -3.0;
+        ico.tick_dt(Duration::from_millis(16));
+        assert!((ico.curr_x - 500.0).abs() > 1.0, "tick_dt is a no-op");
+    }
+
+    #[test]
+    fn reflect_handles_edges_and_multiple_crossings() {
+        // Simple in-range: untouched.
+        let (mut p, mut v) = (5.0, 2.0);
+        reflect(&mut p, &mut v, 10.0);
+        assert_eq!((p, v), (5.0, 2.0));
+
+        // Overshoot right edge: true reflection, velocity flips negative.
+        let (mut p, mut v) = (13.0, 4.0);
+        reflect(&mut p, &mut v, 10.0);
+        assert_eq!((p, v), (7.0, -4.0));
+
+        // Overshoot left edge.
+        let (mut p, mut v) = (-3.0, -4.0);
+        reflect(&mut p, &mut v, 10.0);
+        assert_eq!((p, v), (3.0, 4.0));
+
+        // Giant step crossing both edges still lands in [0, max].
+        let (mut p, mut v) = (27.0, 50.0);
+        reflect(&mut p, &mut v, 10.0);
+        assert!((0.0..=10.0).contains(&p));
+
+        // Degenerate: object larger than screen pins to 0.
+        let (mut p, mut v) = (4.0, 1.0);
+        reflect(&mut p, &mut v, -2.0);
+        assert_eq!(p, 0.0);
+    }
+
+    // Shape-change cycle must count elapsed time, not calls: N calls at dt/N
+    // advance loopcount exactly as far as one call at dt.
+    #[test]
+    fn cycle_counter_is_rate_independent() {
+        let config = AnimConfig {
+            width: 1920,
+            height: 1080,
+            cycles: 0,
+            ..AnimConfig::default()
+        };
+        let mut fast = Ico::new(&config); // 120Hz-ish: 8ms steps
+        let mut slow = Ico::new(&config); // 60Hz-ish: 16ms steps
+        for ico in [&mut fast, &mut slow] {
+            ico.curr_x = 500.0;
+            ico.curr_y = 400.0;
+            ico.loopcount = 0;
+            ico.cycle_accum = 0.0;
+        }
+        for _ in 0..20 {
+            fast.tick_dt(Duration::from_millis(8));
+        }
+        for _ in 0..10 {
+            slow.tick_dt(Duration::from_millis(16));
+        }
+        assert_eq!(fast.loopcount, slow.loopcount);
     }
 }

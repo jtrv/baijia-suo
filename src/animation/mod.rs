@@ -54,6 +54,26 @@ pub enum RenderPolicy {
     CompleteFrame,
 }
 
+/// How a mode's simulation relates to wall-clock time.
+///
+/// This is a *simulation* contract, not a frame rate: presentation cadence is
+/// owned by the compositor (frame callbacks), and the `max_fps` cap is player
+/// policy. Modes only declare what kind of clock their state needs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Pacing {
+    /// State advances in whole steps of `frame_delay_us()`; the tick count is
+    /// part of the mode's content (cell generations, trail density, upstream
+    /// per-tick probabilities). The player accumulates elapsed time into
+    /// bounded whole steps.
+    FixedStep,
+    /// State is a function of elapsed time: the player measures the real
+    /// interval between presentations and calls `tick_dt()` once per frame.
+    /// Smooth at any refresh rate. A `Continuous` mode must override
+    /// `tick_dt()` — the pairing is by contract, verified by the
+    /// `continuous_modes_override_tick_dt` test.
+    Continuous,
+}
+
 /// The core animation trait.
 pub trait Animation: Send {
     /// Create a new animation instance.
@@ -63,6 +83,15 @@ pub trait Animation: Send {
 
     /// Advance the animation by one frame.
     fn tick(&mut self);
+
+    /// The simulation clock contract for this mode.
+    fn pacing(&self) -> Pacing {
+        Pacing::FixedStep
+    }
+
+    /// Advance a `Continuous` animation by the measured elapsed `dt`.
+    /// Unused (and never called) for `FixedStep` modes.
+    fn tick_dt(&mut self, _dt: std::time::Duration) {}
 
     /// Render the current state to the pixel buffer.
     fn render(&self, buffer: &mut [u8], width: u32, height: u32);
