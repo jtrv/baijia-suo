@@ -1,0 +1,1 @@
+spawn-sh-at-startup "./target/release/baijia-suo -C qa/playlist.toml"

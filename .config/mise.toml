@@ -29,3 +29,28 @@ run = "cargo clean"
 [tasks.man]
 description = "Build the man page"
 run = "scdoc < baijia-suo.1.scd > baijia-suo.1"
+
+# Visual QA — every task runs the locker in a NESTED niri, so your real
+# session is never locked. Build first (`mise run release`); the harness only
+# builds when the binary is missing, so it always shows the last build.
+# Extra args are appended, e.g. `mise run qa ico rain` cycles just those two.
+
+[tasks.qa]
+description = "Visual QA: cycle every animation in a nested niri"
+run = "scripts/visual-test.sh"
+
+[tasks.qa-playlist]
+description = "Visual QA: multi-mode playlist handoff (qa/playlist.toml)"
+run = "scripts/visual-test.sh -s -- -C qa/playlist.toml"
+
+[tasks.qa-capped]
+description = "Visual QA: max_fps caps rendering, not speed (qa/capped.toml)"
+run = "scripts/visual-test.sh -s -- -C qa/capped.toml"
+
+[tasks.qa-timing]
+description = "Visual QA: per-frame advance vs present cost (--debug-timing is args-only, no config key)"
+run = "scripts/visual-test.sh -s -- --debug-timing -A petri"
+
+[tasks.qa-indicator]
+description = "Visual QA: type at one indicator style, e.g. `mise run qa-indicator ripple`"
+run = "scripts/visual-test.sh -s -- --indicator-mode"

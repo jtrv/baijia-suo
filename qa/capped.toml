@@ -1,0 +1,19 @@
+# QA preset: frame-rate cap.
+#
+# max_fps must cap *rendering* without changing animation speed — the modes
+# here run fast uncapped (binaryring ~100fps, starfish/discrete faster), so a
+# broken cap shows up as visibly slowed motion rather than just fewer frames.
+#
+#   mise run qa-capped
+#
+# Compare against the same list uncapped:
+#   scripts/visual-test.sh binaryring starfish discrete
+
+animation = [
+  "binaryring",
+  "starfish",
+  "discrete",
+]
+
+cycle = 10
+max_fps = 60
