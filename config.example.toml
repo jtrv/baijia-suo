@@ -85,7 +85,13 @@
 
 # Cap animation frame rates (some modes run at 100+ fps by default, which
 # wastes battery on a 60 Hz panel). Unset = uncapped, each mode's own clock.
+# Capping affects rendering only; animation speed is preserved.
 # max_fps = 60
+
+# Power saver: suspend animations and show the solid background while the
+# battery is discharging at or below this percent (checked every 30s).
+# Unset = never.
+# low_battery_percent = 20
 
 # Detach from the terminal after locking
 # daemonize = false
