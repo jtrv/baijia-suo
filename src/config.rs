@@ -301,7 +301,11 @@ impl Config {
                 .low_battery_percent
                 .or(file.low_battery_percent)
                 .unwrap_or(0),
-            daemonize: args.daemonize || file.daemonize.unwrap_or(false),
+            // --no-daemonize is the only way to express "explicitly off": a
+            // config file's `daemonize = true` would otherwise win
+            // unconditionally, and detaching is what breaks supervisors that
+            // track the locker by child lifetime.
+            daemonize: !args.no_daemonize && (args.daemonize || file.daemonize.unwrap_or(false)),
             debug_timing: args.debug_timing,
             ready_fd: args.ready_fd,
             background_color: pick(&args.color, file.color)
@@ -512,6 +516,26 @@ mod tests {
         assert_eq!(cfg.background_color, Color::from_hex("00ff00").unwrap());
         // ...file value survives where the CLI is silent.
         assert_eq!(cfg.animation.modes, vec!["spiral".to_string()]);
+        assert!(cfg.daemonize);
+    }
+
+    #[test]
+    fn no_daemonize_overrides_file_and_flag() {
+        let on = || FileConfig::parse("daemonize = true\n").unwrap();
+
+        // The gap this closes: without --no-daemonize a file's `true` wins
+        // unconditionally, so a supervisor cannot opt out per-invocation.
+        let cfg = Config::build(&args(&["--no-daemonize"]), on()).unwrap();
+        assert!(!cfg.daemonize);
+
+        // overrides_with makes an explicit pair last-one-wins.
+        let cfg = Config::build(&args(&["-d", "--no-daemonize"]), FileConfig::default()).unwrap();
+        assert!(!cfg.daemonize);
+        let cfg = Config::build(&args(&["--no-daemonize", "-d"]), FileConfig::default()).unwrap();
+        assert!(cfg.daemonize);
+
+        // Absent flag still lets the file decide.
+        let cfg = Config::build(&args(&[]), on()).unwrap();
         assert!(cfg.daemonize);
     }
 

@@ -93,7 +93,10 @@
 # Unset = never.
 # low_battery_percent = 20
 
-# Detach from the terminal after locking
+# Detach from the terminal after locking. Setting this true makes the locker
+# vanish from any supervisor that tracks it by child lifetime (systemd-inhibit,
+# systemd-run --wait); pass --no-daemonize to stay in the foreground for a
+# single invocation.
 # daemonize = false
 
 [indicator]

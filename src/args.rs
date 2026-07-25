@@ -23,8 +23,14 @@ pub(crate) struct Args {
     pub debug: bool,
 
     /// Detach from terminal after locking
-    #[arg(short, long)]
+    #[arg(short, long, overrides_with = "no_daemonize")]
     pub daemonize: bool,
+
+    /// Stay in the foreground even if the config file sets daemonize.
+    /// Lets a supervisor (systemd-inhibit, systemd-run --wait, shell `wait`)
+    /// hold the locker's lifetime per-invocation.
+    #[arg(long, overrides_with = "daemonize")]
+    pub no_daemonize: bool,
 
     /// File descriptor to send readiness notification
     #[arg(short = 'R', long)]

@@ -73,6 +73,13 @@ animation modes may be shown instead, optionally cycling between them.
 *-d, --daemonize*
 	Detach from the terminal after the screen is successfully locked.
 
+*--no-daemonize*
+	Stay in the foreground even when the config file sets _daemonize = true_.
+	Detaching makes the process disappear from any supervisor that tracks it by
+	child lifetime (*systemd-inhibit*(1), *systemd-run --wait*, a shell _wait_);
+	this flag lets such a wrapper opt out for a single invocation. When both
+	flags are given, the last one wins.
+
 *-R, --ready-fd* <fd>
 	Write a newline to file descriptor <fd> once the lock is fully active, then
 	close it. Useful for scripts that must wait until the screen is locked
