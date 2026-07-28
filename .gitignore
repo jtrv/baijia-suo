@@ -42,3 +42,9 @@ rustc-ice-*.txt
 !src/animation/modes/molecules.pdb
 logs/
 .visual-test.kdl
+
+# Local-only scratch state — never commit.
+.remember/
+.claude/
+CLAUDE.md
+AGENTS.md
