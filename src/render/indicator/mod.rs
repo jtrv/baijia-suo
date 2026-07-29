@@ -305,16 +305,16 @@ pub(crate) fn render_indicator(
     let oy = (ctx.y - half).round() as i32;
     let src = pix.data();
     let sw = side as i32;
-    for sy in 0..side as i32 {
+    // Clip once to the source rows/columns that land inside the buffer,
+    // instead of bounds-testing every pixel.
+    let sy0 = (-oy).max(0);
+    let sy1 = (buf_h - oy).min(sw);
+    let sx0 = (-ox).max(0);
+    let sx1 = (buf_w - ox).min(sw);
+    for sy in sy0..sy1 {
         let dy = oy + sy;
-        if dy < 0 || dy >= buf_h {
-            continue;
-        }
-        for sx in 0..sw {
+        for sx in sx0..sx1 {
             let dx = ox + sx;
-            if dx < 0 || dx >= buf_w {
-                continue;
-            }
             let si = ((sy * sw + sx) * 4) as usize;
             let sa = src[si + 3] as u32;
             if sa == 0 {

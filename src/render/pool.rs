@@ -30,7 +30,19 @@ unsafe impl Sync for PoolBuffer {}
 
 impl PoolBuffer {
     /// Creates a new PoolBuffer.
-    pub fn new<D>(shm: &WlShm, width: i32, height: i32, qh: &QueueHandle<D>) -> Result<Self, String>
+    ///
+    /// `opaque` selects Xrgb8888 over Argb8888 (identical memory layout; the
+    /// alpha byte is ignored). Declared opacity lets the compositor skip
+    /// alpha-blending the fullscreen surface — and makes the documented
+    /// desktop-bleed failure mode (see the prefill below) structurally
+    /// impossible. Only safe when the configured background alpha is 1.0.
+    pub fn new<D>(
+        shm: &WlShm,
+        width: i32,
+        height: i32,
+        opaque: bool,
+        qh: &QueueHandle<D>,
+    ) -> Result<Self, String>
     where
         D: Dispatch<WlBuffer, Arc<Mutex<bool>>> + Dispatch<WlShmPool, ()> + 'static,
     {
@@ -71,15 +83,12 @@ impl PoolBuffer {
         // Create the busy flag first; pass the same Arc as wl_buffer user data so the
         // Release event handler (Dispatch<WlBuffer, Arc<Mutex<bool>>>) can clear it.
         let busy = Arc::new(Mutex::new(false));
-        let buffer = pool.create_buffer(
-            0,
-            width,
-            height,
-            stride,
-            wl_shm::Format::Argb8888,
-            qh,
-            busy.clone(),
-        );
+        let format = if opaque {
+            wl_shm::Format::Xrgb8888
+        } else {
+            wl_shm::Format::Argb8888
+        };
+        let buffer = pool.create_buffer(0, width, height, stride, format, qh, busy.clone());
 
         // We can destroy the pool, the buffer will still be valid
         pool.destroy();
@@ -106,7 +115,8 @@ impl PoolBuffer {
         &self.buffer
     }
 
-    /// The raw mmap'd `wl_shm` pixels as a mutable BGRA (Argb8888) slice.
+    /// The raw mmap'd `wl_shm` pixels as a mutable BGRA slice (Argb8888, or
+    /// Xrgb8888 with the alpha byte ignored — same layout either way).
     /// Stride is exactly `width * 4` (no padding), so callers can treat it as
     /// a tightly packed `height` × `width` BGRA image.
     pub fn data_mut(&mut self) -> &mut [u8] {
@@ -170,6 +180,7 @@ impl DoublePool {
         shm: &WlShm,
         width: i32,
         height: i32,
+        opaque: bool,
         qh: &QueueHandle<D>,
     ) -> Result<&mut PoolBuffer, String>
     where
@@ -206,7 +217,7 @@ impl DoublePool {
             ));
         }
 
-        let buffer = PoolBuffer::new(shm, width, height, qh)?;
+        let buffer = PoolBuffer::new(shm, width, height, opaque, qh)?;
         self.buffers.push(buffer);
 
         Ok(self.buffers.last_mut().unwrap())

@@ -222,6 +222,86 @@ surface is ready. A returning frame callback draws immediately when that
 deadline is due; earlier callbacks restore normal timer polling. Input-driven
 queued redraws remain independent.
 
+## 2026-07-29 adversarial review round (4-agent refute pass over a fresh sweep)
+
+Method: each candidate was handed to an agent prompted to refute it against
+the code. Shipped this round (all small, all survived review):
+
+- **Opaque surface declaration.** Buffers are Xrgb8888 and the lock surface
+  carries a max-size opaque region when `background_color.a >= 1.0`
+  (translucent `RRGGBBAA` configs keep Argb8888 — lock-surface alpha is
+  compositor-visible, so an unconditional switch would change visuals).
+  Lets the compositor skip alpha-blending the fullscreen surface; in
+  wlroots-family compositors the format alone disables blending. Honest
+  magnitude: minor, mainly software renderers/iGPUs — plus it makes the
+  desktop-bleed failure mode (see pool.rs prefill comment) structurally
+  impossible. Regions outside the surface are spec-clipped, so one
+  `i32::MAX` region needs no resize/scale upkeep.
+- **Poll-timeout ceil.** `next_timer_ms` floored with `as_millis()`, so
+  poll woke fractionally before stored deadlines (animation wake, key
+  repeat — not the freshly-computed indicator timer) and then spun through
+  zero-timeout polls until the sub-ms remainder passed: ~2-4% of a core
+  while an animated background ran, 6% ceiling. Rounding up also cures the
+  frame-callback-vs-deadline race variant. No timer relies on early fire;
+  keystrokes are socket-driven and unaffected.
+- **Indicator timer gate.** The FRAME_MS redraw timer now arms only with a
+  ready surface (the callback chain self-sustains redraws while typing;
+  the timer was ~1 wasted wakeup per frame) — OR while
+  `verification_start` is set. That exception is load-bearing: the forked
+  verifier's result arrives over an mpsc channel with no pollable fd, and
+  this timer is the only delivery path with the display off. Gating it
+  unconditionally would strand a correct password on a dark screen. A
+  full gate needs a verifier wake-fd (eventfd written by the reply
+  thread, added to the pollfd set) — noted as future work, not needed at
+  ≤~3 s of residual wakeups per attempt.
+- **Indicator composite clip hoist.** Per-pixel x/y bounds tests replaced
+  with per-frame row/column range clamps. Drive-by; ≲0.05 ms/frame.
+
+Killed by review (do not resurrect without new evidence):
+
+- *Scratch-pixmap reuse for the indicator*: modes blend with sub-1.0
+  alphas and the restore contract needs sa==0 outside drawn pixels, so a
+  cached pixmap still pays the full clear; the only saving is malloc/free
+  ≈ 100 ns/frame on glibc (dynamic mmap threshold). Revisit only for musl
+  builds, where large allocs mmap every frame.
+- *Pen-tracked damage bbox*: for the default fade mode the drawn extent is
+  ~1.35r of the 1.5r pixmap — a 19% area cut, not the estimated half —
+  and tracking bounds through stroke miters, text glyph fills, and mask
+  clips is exactly the ghosting-bug shape 16a was designed to avoid.
+- */255 in the composite*: constant division; LLVM already emits
+  mul+shift.
+- **Indicator-on-a-wl_subsurface: NO-GO.** 16a already took the wins it
+  promises (typing frames are small-damage commits; the restore blit is
+  tens of µs). It would trade the tested rotated-buffer bookkeeping for a
+  desync-subsurface state machine no mainstream locker exercises on lock
+  surfaces (misrender = security incident, untestable from the client),
+  can lose direct scanout while the child is mapped, and its "unblocks
+  16b" argument chains through an item already deferred as low-ROI.
+  Legitimate reopen evidence: item 10 shipping plus user demand for a
+  native-res indicator on HiDPI, with a measured indicator raster cost.
+
+### 10 (revisited): render at logical resolution on HiDPI — `todo`, design updated
+Review verdict: GO-WITH-CONDITIONS, and **no wp_viewporter needed** for
+the integer case — attach a logical-size buffer with `set_buffer_scale(1)`
+(surface size = buffer/scale; pure core protocol) and the compositor
+upscales. This also drops the fractional-scale protocol question entirely.
+Notes for the implementer:
+- The one real trap: `playlist_for` keys off buffer dims while
+  `prune_animation_playlists` computes `width * scale` — both must flip to
+  logical together or every configure prunes the live playlist. Side
+  effect (deliberate, test it): a 4K@2x and a native 1080p output would
+  then share one playlist, consistent with item 11.
+- Ship opt-in with the indicator softening accepted (radius scale
+  collapses to 1 naturally). Do NOT couple it to the subsurface proposal.
+- Win is scale²x of the whole active-display pipeline (render + blit +
+  copy; ~2 ms → ~0.5 ms presentation at 4K) and a 4x shm memory cut; the
+  only backlog item with a plausible smoothness payoff (binaryring at 4K).
+  Zero benefit at scale 1 or display-off.
+- Gate on multi-compositor QA: sway (integer + fractional-advertised-as-2),
+  Hyprland, KWin, niri — edge coverage at odd logical sizes, scale flip
+  mid-lock, mixed-output prune, 16a ghosting tests at logical res, and
+  per-mode screenshots (matrix/mandelbrot/binaryring soften most).
+
 ### 19. molecule render scratch — `wontfix (borrowing; profile first)`
 ProjAtom borrows atom labels since the per-frame String clones were removed;
 caching the vec across frames fights the borrow checker. Only revisit with

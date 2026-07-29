@@ -7,7 +7,7 @@ use wayland_client::backend::ObjectId;
 use wayland_client::{
     protocol::{
         wl_buffer::WlBuffer, wl_callback, wl_callback::WlCallback, wl_compositor::WlCompositor,
-        wl_keyboard::WlKeyboard, wl_output::WlOutput, wl_pointer::WlPointer,
+        wl_keyboard::WlKeyboard, wl_output::WlOutput, wl_pointer::WlPointer, wl_region::WlRegion,
         wl_registry::WlRegistry, wl_seat::WlSeat, wl_shm::WlShm, wl_shm_pool::WlShmPool,
         wl_surface::WlSurface,
     },
@@ -187,6 +187,7 @@ impl WaylandState {
         else {
             return;
         };
+        let opaque = self.surface_is_opaque();
         let Some(info) = self.outputs.get_mut(&id) else {
             return;
         };
@@ -194,10 +195,30 @@ impl WaylandState {
             return;
         }
         let wl_surface = compositor.create_surface(qh, ());
+        if opaque {
+            // Declare the whole surface opaque so the compositor can skip
+            // alpha-blending it. Regions outside the surface are clipped by
+            // the compositor, so one max-size region needs no resize/scale
+            // upkeep; set_opaque_region copies, so the region can be
+            // destroyed immediately.
+            let region = compositor.create_region(qh, ());
+            region.add(0, 0, i32::MAX, i32::MAX);
+            wl_surface.set_opaque_region(Some(&region));
+            region.destroy();
+        }
         let lock_surface = lock.get_lock_surface(&wl_surface, &info.output, qh, ());
         info.wl_surface = Some(wl_surface);
         info.surface = Some(lock_surface);
         info.last_committed_indicator = None;
+    }
+
+    /// Whether every pixel we present is fully opaque, making the opaque
+    /// buffer format and region declarations safe. Only a configured
+    /// translucent background (`RRGGBBAA` with alpha < 1.0) writes
+    /// non-opaque pixels — animations and the indicator composite always
+    /// land on that base at full coverage.
+    fn surface_is_opaque(&self) -> bool {
+        self.app.config.background_color.a >= 1.0
     }
 
     fn prune_animation_playlists(&mut self) {
@@ -235,6 +256,7 @@ impl WaylandState {
             None => return,
         };
         let qh = self.qh.clone();
+        let opaque = self.surface_is_opaque();
 
         // Frame-callback pacing: if every configured surface still owes us
         // a callback, drawing now would outpace the compositor. Preserve the
@@ -323,7 +345,7 @@ impl WaylandState {
                 info.pool = Some(DoublePool::new());
             }
             let pool = info.pool.as_mut().unwrap();
-            let buf = match pool.get_buffer(&shm, pw, ph, &qh) {
+            let buf = match pool.get_buffer(&shm, pw, ph, opaque, &qh) {
                 Ok(b) => b,
                 Err(e) => {
                     log::error!("draw: failed to acquire buffer: {}", e);
@@ -423,10 +445,17 @@ impl WaylandState {
 
         // The indicator owns its clock (see render::indicator's consts);
         // the loop just redraws at frame cadence while it reports activity.
-        let indicator_timer = self
-            .app
-            .indicator_active(now)
-            .then(|| now + Duration::from_millis(crate::render::indicator::FRAME_MS));
+        // Gated behind a ready surface like the animation timer — while every
+        // surface owes a frame callback, the callback chain re-queues redraws
+        // itself and this timer would only wake to set present_queued again.
+        // EXCEPT while an auth attempt is in flight or unsettled: the forked
+        // verifier's result arrives over an mpsc channel with no pollable fd,
+        // and this timer's tick_timers → update_auth is the only delivery
+        // path — gating it with the display off would strand a correct
+        // password on a dark screen.
+        let indicator_timer = (self.app.indicator_active(now)
+            && (self.has_ready_surface() || self.app.verification_start.is_some()))
+        .then(|| now + Duration::from_millis(crate::render::indicator::FRAME_MS));
         let animation_timer = pollable_animation_wake(self.has_ready_surface(), self.anim_wake_at);
 
         for t in [
@@ -445,7 +474,12 @@ impl WaylandState {
             let ms = if t <= now {
                 0
             } else {
-                t.duration_since(now).as_millis() as u64
+                // Round up: a floor here wakes poll() fractionally before
+                // the deadline, and the sub-millisecond remainder then
+                // truncates to a zero timeout — a busy-wait of up to ~1 ms
+                // per timer edge (~60/s with an animated background).
+                let d = t.duration_since(now);
+                d.as_millis() as u64 + u64::from(d.subsec_nanos() % 1_000_000 != 0)
             };
             min_ms = Some(min_ms.map_or(ms, |prev| prev.min(ms)));
         }
@@ -676,6 +710,18 @@ impl Dispatch<WlShm, ()> for WaylandState {
         _: &mut Self,
         _: &WlShm,
         _: <WlShm as wayland_client::Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<WlRegion, ()> for WaylandState {
+    fn event(
+        _: &mut Self,
+        _: &WlRegion,
+        _: <WlRegion as wayland_client::Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
