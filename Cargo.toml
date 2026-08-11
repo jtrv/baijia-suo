@@ -1,0 +1,52 @@
+[package]
+name = "baijia-suo"
+version = "0.1.0"
+edition = "2021"
+authors = []
+description = "A secure Wayland screen locker with xlockmore animation support"
+license = "MIT AND OFL-1.1"
+rust-version = "1.89"
+
+[dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+xkbcommon = "0.9"
+# Pure-Rust 2D rasterizer + font parser for the typing indicator — together
+# they replace cairo-rs and its C runtime deps (libcairo/libglib/freetype/
+# fontconfig) with statically-linked Rust and a bundled font. skrifa extracts
+# glyph outlines; tiny-skia rasterizes them (same path as everything else the
+# indicator draws).
+tiny-skia = "0.12"
+skrifa = "0.45"
+libc = "0.2" # fork, pipe, mlock, prctl, setres*, …
+zeroize = "1.8"
+rand = "0.10"
+log = "0.4"
+
+# default-features off drops clap's color (anstream/anstyle) and
+# typo-suggestion (strsim) machinery; --help/--version/errors stay.
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+# basic-toml is parse-only; serde's proc-macro chain is already paid for by clap.
+basic-toml = "0.1"
+serde = { version = "1", features = ["derive"] }
+# read the --auth-test password with echo off (restores the terminal on ^C)
+rpassword = "7"
+
+[dev-dependencies]
+criterion = "0.8.2"
+tempfile = "3"
+
+[[bench]]
+name = "animations"
+harness = false
+
+[build-dependencies]
+# Build-only (not in the shipped binary): generate the fish completion.
+clap = { version = "4", default-features = false, features = ["std", "derive"] }
+clap_complete = "4"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+strip = true

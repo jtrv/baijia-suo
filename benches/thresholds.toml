@@ -1,0 +1,3 @@
+# Mean-time percentage changes versus the local Criterion baseline.
+improved_percent = -5.0
+regressed_percent = 5.0

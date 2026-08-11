@@ -1,0 +1,12 @@
+# cargo-nextest configuration.
+# https://nexte.st/docs/configuration/
+
+[profile.default]
+# A test that runs longer than 10s is flagged as slow; after 3 such periods
+# (30s) it is force-terminated and reported as a failure rather than hanging
+# the whole run. IPC tests use blocking pipe reads, so a deadlock must not
+# stall CI indefinitely.
+slow-timeout = { period = "10s", terminate-after = 3 }
+
+# Surface output from failing tests immediately.
+failure-output = "immediate"

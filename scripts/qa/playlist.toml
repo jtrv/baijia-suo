@@ -1,0 +1,16 @@
+# QA preset: multi-mode playlist rotation.
+#
+# Exercises the playlist path — several modes in one session with a short
+# `cycle`, so switching (and the per-size player reset it triggers) happens
+# every few seconds instead of every minute.
+#
+#   mise run qa-playlist
+
+animation = [
+  "moire",
+  "noof",
+  "petri",
+]
+
+# Short on purpose: the point is to watch the handoff, not the modes.
+cycle = 5
