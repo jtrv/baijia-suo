@@ -10,7 +10,7 @@
 | ![coral animation with typing indicator](docs/screenshots/baijia-suo-coral.webp) | ![spiral animation](docs/screenshots/baijia-suo-spiral.webp) | ![vines animation](docs/screenshots/baijia-suo-vines.webp) |
 | ![apollonian animation](docs/screenshots/baijia-suo-apollonian.webp) | ![mandelbrot animation](docs/screenshots/baijia-suo-mandelbrot.webp) | ![drift animation](docs/screenshots/baijia-suo-drift.webp) |
 | ![squiral animation](docs/screenshots/baijia-suo-squiral.webp) | ![mountain animation](docs/screenshots/baijia-suo-mountain.webp) | ![boxfit animation](docs/screenshots/baijia-suo-boxfit.webp) |
-| ![petri animation](docs/screenshots/baijia-suo-petri.webp) | ![matrix animation](docs/screenshots/baijia-suo-matrix.webp) | |
+| ![petri animation](docs/screenshots/baijia-suo-petri.webp) | ![matrix animation](docs/screenshots/baijia-suo-matrix.webp) | ![moire animation](docs/screenshots/baijia-suo-moire.webp) |
 
 *Eleven of the 66 animated backgrounds ported from xlockmore / xscreensaver, at default settings — `coral` (with the default fade typing indicator lit), `spiral`, `vines`, `apollonian`, `mandelbrot`, `drift`, `squiral`, `mountain`, `boxfit`, `petri`, and `matrix`.*
 
