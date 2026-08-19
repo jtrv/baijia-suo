@@ -200,7 +200,7 @@ impl Discrete {
                 self.b = Self::lrand_f(rng) * range - range / 2.0;
                 self.c = Self::lrand_f(rng) * range - range / 2.0;
                 // C: `if (!(LRAND() % 2)) hp->c = 0.0;`  — zero c ~50% of the time
-                if Self::lrand(rng) % 2 == 0 {
+                if Self::lrand(rng).is_multiple_of(2) {
                     self.c = 0.0;
                 }
                 self.i = 0.0;

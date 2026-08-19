@@ -1088,7 +1088,7 @@ impl Animation for Piecewise {
         }
 
         self.iterations += 1;
-        if self.iterations % self.color_iterations == 0 {
+        if self.iterations.is_multiple_of(self.color_iterations) {
             self.color_index = (self.color_index + 1) % self.ncolors;
         }
     }

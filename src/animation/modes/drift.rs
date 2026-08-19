@@ -144,7 +144,7 @@ impl Drift {
         };
 
         // MI_IS_FULLRANDOM is always true in the standalone build
-        if lrand() % 3 == 0 {
+        if lrand().is_multiple_of(3) {
             dp.grow = true;
         } else {
             dp.grow = false;

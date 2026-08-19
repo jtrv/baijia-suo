@@ -303,7 +303,7 @@ fn randomize_c(randomize: u32, c: &mut Circle) {
     if randomize / 2 != 0 {
         std::mem::swap(&mut c.x, &mut c.y);
     }
-    if randomize % 2 != 0 {
+    if !randomize.is_multiple_of(2) {
         c.x = -c.x;
         c.y = -c.y;
     }

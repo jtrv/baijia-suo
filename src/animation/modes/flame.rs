@@ -258,7 +258,7 @@ impl Animation for Flame {
 
     fn tick(&mut self) {
         // cur_level starts at 0; the check mirrors `!(fp->cur_level++ % fp->max_levels)`.
-        if self.cur_level % self.max_levels == 0 {
+        if self.cur_level.is_multiple_of(self.max_levels) {
             self.needs_clear.set(true);
             if self.ncolors <= 2 {
                 self.color = Color::new(255, 255, 255, 255);

@@ -35,7 +35,7 @@ pub(super) fn draw(pen: &mut Pen, ctx: &IndicatorCtx) {
         let h = hasher.finish();
         active_spaces = (h % 5) as usize;
         inactive_spaces = ((h / 5) % 5) as usize;
-        active_is_cw = (h % 2) == 0;
+        active_is_cw = h.is_multiple_of(2);
     }
 
     // Map keystrokes to randomized positions, skipping ~1 in 4 (decided from the
@@ -46,7 +46,7 @@ pub(super) fn draw(pen: &mut Pen, ctx: &IndicatorCtx) {
     for (i, &ts) in keystrokes.iter().enumerate() {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         ts.hash(&mut hasher);
-        if hasher.finish() % 4 == 0 {
+        if hasher.finish().is_multiple_of(4) {
             continue;
         }
         let segment_idx = segment_sequence[i % segment_sequence.len()];

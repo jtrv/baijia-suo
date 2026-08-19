@@ -164,7 +164,7 @@ impl Coral {
                 self.nwalkers -= 1;
                 self.walkers[i] = self.walkers[self.nwalkers];
                 let color = if self.colorsloth != 0 {
-                    self.nwalkers % self.colorsloth == 0
+                    self.nwalkers.is_multiple_of(self.colorsloth)
                 } else {
                     true
                 };

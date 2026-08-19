@@ -1437,7 +1437,7 @@ impl Abstractile {
             od[no] = DIR_LEFT;
             no += 1;
         }
-        if (z + 1) % gx != 0
+        if !(z + 1).is_multiple_of(gx)
             && self.grid[z].hl == 0
             && self.grid[z].hr == 0
             && self.grid[z + 1].line == 0
