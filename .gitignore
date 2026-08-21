@@ -40,6 +40,9 @@ rustc-ice-*.txt
 logs/
 .visual-test.kdl
 
+# nix build output symlink
+/result
+
 # Local-only scratch state — never commit.
 .remember/
 .claude/
