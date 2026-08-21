@@ -39,6 +39,10 @@
         }
       );
 
+      overlays.default = final: prev: {
+        baijia-suo = final.callPackage ./nix/package.nix { };
+      };
+
       nixosModules.default = import ./nix/module.nix;
     };
 }
