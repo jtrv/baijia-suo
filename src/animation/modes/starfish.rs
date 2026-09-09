@@ -12,7 +12,7 @@
 //
 // Rust port of xscreensaver/hacks/starfish.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 use crate::animation::primitives::{put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -224,7 +224,7 @@ impl Starfish {
     }
 
     fn spin_starfish(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut th = self.th;
 
         if th < 0.0 {
@@ -271,7 +271,7 @@ impl Starfish {
     }
 
     fn init_starfish(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.elasticity = SCALE * self.thickness;
         if self.elasticity == 0.0 {
@@ -372,7 +372,7 @@ impl Animation for Starfish {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.blob_p = rng.random_ratio(1, 10);
         

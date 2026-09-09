@@ -27,7 +27,7 @@
  * not implemented (we always have a color display).
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 use crate::animation::primitives::{Color, Spline};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -305,7 +305,7 @@ impl Animation for Goop {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.width = config.width;
         self.height = config.height;
         self.mask = vec![false; self.width as usize * self.height as usize];
@@ -365,7 +365,7 @@ impl Animation for Goop {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let (w, h) = (self.width as i32, self.height as i32);
         for layer in &mut self.layers {
             for blob in &mut layer.blobs {

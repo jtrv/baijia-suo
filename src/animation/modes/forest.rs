@@ -21,7 +21,7 @@
 use std::cell::Cell;
 use std::f64::consts::PI;
 
-use rand::RngExt;
+use crate::rng::RngExt;
 
 use crate::animation::primitives::{clear_buffer, draw_line, Color};
 use crate::animation::{AnimConfig, Animation};
@@ -91,7 +91,7 @@ fn build_tree(
     mut c: i16, // color index
     level: i32,
 ) {
-    let mut rng = rand::rng();
+    let mut rng = crate::rng::rng();
 
     // --- left branch ---
     let a1 = a + as_
@@ -204,7 +204,7 @@ impl Forest {
 
 impl Animation for Forest {
     fn new(config: &AnimConfig) -> Self {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let ncolors = if config.ncolors <= 0 {
             DEFAULT_NCOLORS
         } else {
@@ -237,7 +237,7 @@ impl Animation for Forest {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.ops.clear();
 
@@ -319,7 +319,7 @@ impl Animation for Forest {
             self.time = 0;
             self.needs_clear.set(true);
             // Re-roll ntrees for the new cycle
-            let mut rng2 = rand::rng();
+            let mut rng2 = crate::rng::rng();
             self.ntrees = Self::resolve_ntrees(
                 // preserve the original count semantics — use ntrees as-is
                 // (we store ntrees already resolved, so pass it back positively)
@@ -341,7 +341,7 @@ impl Animation for Forest {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

@@ -33,7 +33,7 @@
 
 use crate::animation::primitives::{hsv_to_rgb, put_pixel, rgb16, Color};
 use crate::animation::{AnimConfig, Animation};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 /* defaults table */
 const LENSNUM: usize = 3;
@@ -509,7 +509,7 @@ impl Ifs {
         self.ymin = self.height + 1;
 
         self.buffer = vec![0u8; w as usize * h as usize * 4];
-        for px in self.buffer.chunks_exact_mut(4) {
+        for px in self.buffer.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
 
@@ -542,7 +542,7 @@ fn lensmatrix(width: i32, height: i32, l: &mut Lens) {
 
 impl Animation for Ifs {
     fn new(config: &AnimConfig) -> Self {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         let lensnum = LENSNUM;
         let ncolours = NCOLOURS.max(lensnum).max(1);
@@ -596,7 +596,7 @@ impl Animation for Ifs {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         // erase whatever was drawn in the previous frame
         if self.xmin <= self.xmax && self.ymin <= self.ymax {

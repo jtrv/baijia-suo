@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/lightning.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use crate::animation::primitives::{draw_line, Color};
 
@@ -467,7 +467,7 @@ impl Animation for Lightning {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.scr_width = config.width;
         self.scr_height = config.height;
         self.delay_us = config.delay_us;
@@ -482,7 +482,7 @@ impl Animation for Lightning {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         match self.stage {
             0 => {

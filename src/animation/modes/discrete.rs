@@ -22,7 +22,7 @@
 
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 
 // xlockmore defaults from discrete.c DEFAULTS block:
@@ -316,7 +316,7 @@ impl Animation for Discrete {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.pixel_buf.clear();
 
@@ -514,7 +514,7 @@ impl Animation for Discrete {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.maxx = config.width as i32;
         self.maxy = config.height as i32;

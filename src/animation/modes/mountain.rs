@@ -18,7 +18,7 @@
 
 use crate::animation::primitives::{clear_buffer, draw_line, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 const WORLDWIDTH: usize = 50;
 
@@ -168,7 +168,7 @@ impl Mountain {
     }
 
     fn init_terrain(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         let max_height = 3 * (self.width as i32 + self.height as i32);
 

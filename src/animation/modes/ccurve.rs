@@ -13,7 +13,7 @@
  * including the classic "C Curve").
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, SQRT_2};
 
 use crate::animation::primitives::{clear_buffer, draw_line, Color};
@@ -459,7 +459,7 @@ impl Animation for CCurve {
             return;
         }
 
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         const LENGTHS: [usize; 9] = [4, 4, 4, 4, 4, 3, 3, 3, 2];
 
         if self.draw_index == 0 {

@@ -37,7 +37,7 @@
 // reproduce that behaviour exactly: ellipse centered at (x0, y1), and we keep
 // only `pool_y` since that's the threshold the falling check reads.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 
 use crate::animation::primitives::{draw_line, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -287,7 +287,7 @@ impl Animation for Rain {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         // xlockmore: per-frame 1-in-(width/4) chance to reroll the color
         // scheme. `.max(2)` is a safety guard for tiny windows.
@@ -361,7 +361,7 @@ impl Animation for Rain {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

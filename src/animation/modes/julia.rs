@@ -18,7 +18,7 @@
 
 use crate::animation::primitives::{put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 
 pub struct Julia {
@@ -138,7 +138,7 @@ impl Animation for Julia {
         };
         self.buffer_colors[self.buffer_idx] = color;
 
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut xr = 0.0_f64;
         let mut xi = 0.0_f64;
 
@@ -194,7 +194,7 @@ impl Animation for Julia {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.width = config.width;
         self.height = config.height;
         self.centerx = (self.width / 2) as i32;

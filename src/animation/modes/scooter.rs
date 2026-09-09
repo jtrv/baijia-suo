@@ -25,7 +25,7 @@
 
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use crate::animation::primitives::{draw_line, put_pixel, Color};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 const MIN_DOORS: i32 = 4;
 const MIN_SPEED: i32 = 1;
@@ -559,7 +559,7 @@ impl Animation for Scooter {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.shift_elements(&mut rng);
     }
 
@@ -575,7 +575,7 @@ impl Animation for Scooter {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.delay_us = config.delay_us;
 

@@ -13,6 +13,8 @@ pub mod app;
 pub mod config;
 pub mod render;
 
+mod rng;
+
 mod args;
 mod auth;
 mod cli;

@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/ball.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use crate::animation::primitives::{put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
 
@@ -78,7 +78,7 @@ impl Animation for Ball {
 
     fn tick(&mut self) {
         self.draw_ops.clear();
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         for i in 0..self.nballs {
             if !self.bt[i].def {
@@ -194,7 +194,7 @@ impl Animation for Ball {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.width = config.width;
         self.height = config.height;
         self.delay_us = config.delay_us;
@@ -284,7 +284,7 @@ fn inwin(balls: &[BallType], width: u32, height: u32, x: i32, y: i32, n: &mut us
     0 // NONE
 }
 
-fn randomball(balls: &mut [BallType], i: usize, width: u32, height: u32, bounce_cfg: i32, rad_cfg: i32, rng: &mut impl rand::RngExt) {
+fn randomball(balls: &mut [BallType], i: usize, width: u32, height: u32, bounce_cfg: i32, rad_cfg: i32, rng: &mut impl crate::rng::RngExt) {
     let mut attempts = 0;
 
     let mut bn = if bounce_cfg == -2 {

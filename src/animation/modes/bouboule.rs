@@ -16,7 +16,7 @@
  */
 
 use std::f64::consts::PI;
-use rand::RngExt;
+use crate::rng::RngExt;
 use crate::animation::primitives::{put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
@@ -184,7 +184,7 @@ impl Animation for Bouboule {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.thetax.vary(&mut rng);
         self.thetay.vary(&mut rng);
@@ -269,7 +269,7 @@ impl Animation for Bouboule {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

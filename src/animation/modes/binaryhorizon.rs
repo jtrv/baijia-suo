@@ -27,7 +27,7 @@
  */
 
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::time::Instant;
 
 const BLACK: usize = 0;
@@ -329,7 +329,7 @@ impl BinaryHorizon {
 
     fn clear_buffer_black(&mut self) {
         self.buffer = vec![0u8; self.width as usize * self.height as usize * 4];
-        for px in self.buffer.chunks_exact_mut(4) {
+        for px in self.buffer.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
     }
@@ -337,7 +337,7 @@ impl BinaryHorizon {
 
 impl Animation for BinaryHorizon {
     fn new(config: &AnimConfig) -> Self {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         // dual screens not in lockstep: duration *= 1 + frand(0.3), int truncation
         let duration = (DURATION * (1.0 + rng.random::<f64>() * 0.3)) as u64;
         let mut st = BinaryHorizon {
@@ -375,7 +375,7 @@ impl Animation for BinaryHorizon {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         // Full reset every N seconds
         if self.duration != 0 && self.start_time.elapsed().as_secs() > self.duration {
@@ -406,7 +406,7 @@ impl Animation for BinaryHorizon {
 
     fn reset(&mut self, config: &AnimConfig) {
         // C reshape path: new size, epoch back to WHITE, fresh particles + buffers
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.width = config.width as i32;
         self.height = config.height as i32;
         self.epoch = WHITE;

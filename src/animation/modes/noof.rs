@@ -12,7 +12,7 @@
 //
 // Rust port of xscreensaver/hacks/glx/noof.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::cell::Cell;
 use std::f32::consts::PI;
 use crate::animation::primitives::{clear_buffer, draw_line, Color};
@@ -50,7 +50,7 @@ pub struct Noof {
 }
 
 fn initshapes(shape: &mut Shape) {
-    let mut rng = rand::rng();
+    let mut rng = crate::rng::rng();
 
     for k in 0..3 {
         shape.pos[k] = rng.random::<f32>();

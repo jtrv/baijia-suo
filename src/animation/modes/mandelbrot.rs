@@ -18,7 +18,7 @@
 
 use std::cell::Cell;
 use std::f64::consts::LN_2;
-use rand::RngExt;
+use crate::rng::RngExt;
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
 
@@ -248,7 +248,7 @@ pub struct Mandelbrot {
 
 impl Mandelbrot {
     fn select(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut found = false;
 
         while !found {
@@ -341,7 +341,7 @@ impl Animation for Mandelbrot {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.ops.clear();
 
@@ -440,7 +440,7 @@ impl Animation for Mandelbrot {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.screen_width = config.width;
         self.screen_height = config.height;

@@ -13,7 +13,7 @@
 
 use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 // defaults from coral.c: *density: 25, *seeds: 20, *delay: 5 (seconds),
 // *delay2: 20000 (us), .background: black, .foreground: white
@@ -66,7 +66,7 @@ impl Coral {
 
     /* port of init_coral */
     fn init(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         clear_buffer(&mut self.pixels, Color::new(255, 0, 0, 0));
 
         self.scale = 1;
@@ -129,7 +129,7 @@ impl Coral {
 
     /* port of coral(): one pass over all walkers; returns true when done */
     fn step(&mut self) -> bool {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let bw = self.width as u32;
         let bh = self.height as u32;
 

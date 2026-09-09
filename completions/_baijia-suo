@@ -1,0 +1,56 @@
+#compdef baijia-suo
+
+autoload -U is-at-least
+
+_baijia-suo() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'-C+[Path to config file]:CONFIG:_default' \
+'--config=[Path to config file]:CONFIG:_default' \
+'-c+[Background color in RRGGBB or RRGGBBAA format]:COLOR:_default' \
+'--color=[Background color in RRGGBB or RRGGBBAA format]:COLOR:_default' \
+'-R+[File descriptor to send readiness notification]:READY_FD:_default' \
+'--ready-fd=[File descriptor to send readiness notification]:READY_FD:_default' \
+'*-A+[Animation mode(s). Repeat or comma-separate to cycle through several (e.g. \`-A spiral,flame\`); "random" or "all" uses every mode. Omit for a solid background]:ANIMATION:_default' \
+'*--animation=[Animation mode(s). Repeat or comma-separate to cycle through several (e.g. \`-A spiral,flame\`); "random" or "all" uses every mode. Omit for a solid background]:ANIMATION:_default' \
+'--cycle=[Seconds each animation plays before cycling to the next; only applies with multiple modes. Default 60]:SECONDS:_default' \
+'--max-fps=[Cap animation frame rates (fps). Unset = uncapped, each mode'\''s own clock (some run at 100+ fps)]:FPS:_default' \
+'--low-battery-percent=[Suspend animations (solid background) when the battery is discharging at or below this percent. Unset = never]:PERCENT:_default' \
+'--indicator-mode=[Typing indicator style\: fade (default), pin-tumbler, comet, breath, dots, scope, or ripple. All but pin-tumbler avoid revealing the password length on screen]:INDICATOR_MODE:_default' \
+'--indicator-opacity=[Indicator opacity, 0.0-1.0 (default 1.0 = fully opaque)]:INDICATOR_OPACITY:_default' \
+'--indicator-color=[Indicator disk color for idle/typing states, RRGGBB]:INDICATOR_COLOR:_default' \
+'--auth-backend=[Authentication backend to use]:AUTH_BACKEND:_default' \
+'--username=[Username for authentication]:USERNAME:_default' \
+'--debug[Enable debug logging]' \
+'-d[Detach from terminal after locking]' \
+'--daemonize[Detach from terminal after locking]' \
+'--no-daemonize[Stay in the foreground even if the config file sets daemonize. Lets a supervisor (systemd-inhibit, systemd-run --wait, shell \`wait\`) hold the locker'\''s lifetime per-invocation]' \
+'--debug-timing[Log per-frame timing (animation advance vs present cost, 1/s aggregate) for performance work]' \
+'--list-animations[List available animation modes and exit]' \
+'--auth-test[Test authentication only (does not lock screen)]' \
+'-V[Print version]' \
+'--version[Print version]' \
+&& ret=0
+}
+
+(( $+functions[_baijia-suo_commands] )) ||
+_baijia-suo_commands() {
+    local commands; commands=()
+    _describe -t commands 'baijia-suo commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_baijia-suo" ]; then
+    _baijia-suo "$@"
+else
+    compdef _baijia-suo baijia-suo
+fi

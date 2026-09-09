@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/qix.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::collections::VecDeque;
 use crate::animation::primitives::{draw_line, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -196,7 +196,7 @@ impl Animation for Qix {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         for i in 0..self.npoints {
             self.points[i].x += self.points[i].dx;
@@ -288,7 +288,7 @@ impl Animation for Qix {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.history.clear();
         self.width = config.width;

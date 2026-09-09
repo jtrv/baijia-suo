@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/bounce.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 use crate::animation::primitives::{put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -261,7 +261,7 @@ impl Animation for Bounce {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         
         for i in 0..self.balls.len() {
             let mut ball = self.balls[i].clone();
@@ -289,7 +289,7 @@ impl Animation for Bounce {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.width = config.width as i32;
         self.height = config.height as i32;
         self.restartnum = TIME;

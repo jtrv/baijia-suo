@@ -12,7 +12,7 @@
 //
 // Rust port of xlockmore/modes/petri.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use crate::animation::primitives::{put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
 
@@ -100,7 +100,7 @@ impl Petri {
     }
 
     fn randblip(&mut self, doit: bool) -> bool {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut b = false;
 
         if !doit {
@@ -171,7 +171,7 @@ impl Petri {
         // The whole dish just went blank.
         self.full_repaint.set(true);
 
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.blastcount = rng.random_range(self.minlifespan..=self.maxlifespan);
     }
 
@@ -327,7 +327,7 @@ impl Animation for Petri {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;
@@ -354,8 +354,8 @@ impl Animation for Petri {
         }
 
         // DEVIATION from xlockmore: upstream defaults to fullrandom=True
-        // (petri.c:79), rerolling these per dish (anychan = rand^15,
-        // instantdeathchan = rand^8, random lifespans/speeds) — which lets
+        // (petri.c:79), rerolling these per dish (anychan = random^15,
+        // instantdeathchan = random^8, random lifespans/speeds) — which lets
         // the whole-dish instant-death reset dominate some runs. We use the
         // fixed fullrandom=False constants (petri.c DEF_*) instead, trading
         // upstream's run-to-run variety for consistently watchable dishes.

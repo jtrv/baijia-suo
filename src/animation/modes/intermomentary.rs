@@ -32,7 +32,7 @@
 
 use crate::animation::primitives::{hsv_to_rgb, put_pixel, rgb16, Color};
 use crate::animation::{AnimConfig, Animation};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 /* defaults table */
 const DRAW_DELAY: u64 = 30_000;
@@ -316,7 +316,7 @@ impl Intermomentary {
     }
 
     fn init_field(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;
@@ -370,7 +370,7 @@ impl Intermomentary {
     fn blank_img(&mut self) {
         self.off_alpha.fill(0);
         // background is black
-        for px in self.buffer.chunks_exact_mut(4) {
+        for px in self.buffer.as_chunks_mut::<4>().0 {
             px[0] = 0;
             px[1] = 0;
             px[2] = 0;
@@ -397,7 +397,7 @@ impl Animation for Intermomentary {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.blank_img();
         for tempx in 0..self.discs.len() {
             self.move_disc(tempx);

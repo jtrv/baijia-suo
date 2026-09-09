@@ -15,7 +15,7 @@ use std::cell::Cell;
 
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 const MAXLEV: usize = 4;
 const MAXKINDS: usize = 9;
@@ -56,7 +56,7 @@ impl Flame {
             self.lasthalf = 0;
         } else {
             // LRAND() is a 31-bit nonnegative value; the saved half is bits 16..31 (15 bits).
-            let full: u32 = rand::rng().random::<u32>() >> 1;
+            let full: u32 = crate::rng::rng().random::<u32>() >> 1;
             self.lasthalf = (full >> 16) as u16;
             r = full;
         }
@@ -64,7 +64,7 @@ impl Flame {
     }
 
     fn lrand_coef() -> f64 {
-        let bits: u32 = rand::rng().random::<u32>() & 1023;
+        let bits: u32 = crate::rng::rng().random::<u32>() & 1023;
         bits as f64 / 512.0 - 1.0
     }
 
@@ -376,7 +376,7 @@ impl Animation for Flame {
         }
 
         // C uses NRAND(MAXKINDS) here, not halfrandom — must not disturb lasthalf.
-        self.variation = rand::rng().random_range(0..MAXKINDS);
+        self.variation = crate::rng::rng().random_range(0..MAXKINDS);
     }
 
 

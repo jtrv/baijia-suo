@@ -14,7 +14,7 @@
  * by a polyline arc rasterizer.
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 
 use crate::animation::primitives::{draw_line, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -842,7 +842,7 @@ pub struct Piecewise {
 
 impl Piecewise {
     fn init_circles(&mut self, n: usize, w: i32, h: i32) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let speed = 15.0; /* *speed: 15 */
         let minradius = 0.05; /* .minradius: 0.05 */
         let maxradius = 0.2; /* .maxradius: 0.2 */
@@ -915,7 +915,7 @@ impl Piecewise {
                         );
                         f = nf;
                         if degenerate {
-                            let mut rng = rand::rng();
+                            let mut rng = crate::rng::rng();
                             let ci = self.fringes[elo].c;
                             tweak_circle(&mut self.circles[ci], &mut rng);
                             circle_start_event(&mut self.events, &mut eq, &self.circles, ci);
@@ -969,7 +969,7 @@ impl Piecewise {
 
     /* the CHECK_PANIC restart path: perturb everything and try again */
     fn panic_reset(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         for i in 0..self.count {
             tweak_circle(&mut self.circles[i], &mut rng);
             self.fringes[2 * i].ints.clear();
@@ -1100,7 +1100,7 @@ impl Animation for Piecewise {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

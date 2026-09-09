@@ -28,7 +28,7 @@
  * utils/hsv.c and utils/colors.c ported inline).
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 
 use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
@@ -454,7 +454,7 @@ impl Animation for Cynosure {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         if self.iterations > 0 {
             self.i += 1;
             if self.i >= self.iterations {
@@ -477,7 +477,7 @@ impl Animation for Cynosure {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

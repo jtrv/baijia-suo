@@ -347,7 +347,6 @@ fn expand_modes(list: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
 
     fn args(argv: &[&str]) -> Args {
         Args::parse_from(std::iter::once("baijia-suo").chain(argv.iter().copied()))

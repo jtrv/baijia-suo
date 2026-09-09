@@ -23,7 +23,7 @@
  * space labels stay visible.
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 
 use crate::animation::primitives::{clear_buffer, draw_circle, draw_line, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
@@ -546,7 +546,7 @@ impl Apollonian {
 
     /* init_apollonian */
     fn init(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.size = ((self.width.min(self.height) as i32) - 1).max(1);
         self.offset_x = (self.width as i32 - self.size) / 2;

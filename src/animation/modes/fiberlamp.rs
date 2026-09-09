@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/fiberlamp.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 
 use crate::animation::primitives::{draw_line, Color};
@@ -121,7 +121,7 @@ impl Animation for Fiberlamp {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         let cx = (self.width / 2) as i32;
         let cy = self.height as i32;
@@ -258,7 +258,7 @@ impl Animation for Fiberlamp {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

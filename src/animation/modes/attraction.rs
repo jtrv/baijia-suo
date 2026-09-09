@@ -18,7 +18,7 @@
  * InterViews distribution -- and utils/hsv.c / utils/colors.c ported inline).
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 
 use crate::animation::primitives::{
@@ -239,7 +239,7 @@ impl Animation for Attraction {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let last_point_stack_fp = self.point_stack_fp;
         let mut radius = self.global_size / 2;
 
@@ -494,7 +494,7 @@ impl Animation for Attraction {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;
@@ -581,7 +581,7 @@ impl Animation for Attraction {
             3.0
         };
         // let's make the balls bigger by default
-        let rand_size = |rng: &mut rand::rngs::ThreadRng| -> i32 {
+        let rand_size = |rng: &mut crate::rng::Rng| -> i32 {
             (size_scale * (8 + rng.random_range(0..7)) as f64) as i32
         };
 
@@ -635,7 +635,7 @@ impl Animation for Attraction {
         self.spline = Spline::new(self.npoints);
 
         self.buf = vec![0u8; (config.width * config.height * 4) as usize];
-        for px in self.buf.chunks_exact_mut(4) {
+        for px in self.buf.as_chunks_mut::<4>().0 {
             px[3] = 0xff;
         }
     }

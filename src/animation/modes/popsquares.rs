@@ -13,7 +13,7 @@
 
 use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 // defaults from popsquares.c: *delay: 25000, *subdivision: 5, *border: 1,
 // *ncolors: 128, *twitch: False, .background: #0000FF, .foreground: #00008B
@@ -120,7 +120,7 @@ fn randomize_square_colors(squares: &mut [Square], ncolors: usize, rng: &mut imp
 impl PopSquares {
     /* port of popsquares_reshape */
     fn reshape(&mut self, width: u32, height: u32) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let w = width as i32;
         let h = height as i32;
         let mut s = SUBDIVISION;
@@ -183,7 +183,7 @@ impl Animation for PopSquares {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         // popsquares_draw advances each square's color after painting it
         for i in 0..self.squares.len() {
             self.squares[i].color += 1;

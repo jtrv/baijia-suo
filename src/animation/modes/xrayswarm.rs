@@ -30,7 +30,7 @@
 
 use crate::animation::primitives::{clear_buffer, draw_line, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::time::Instant;
 
 const MAX_TRAIL_LEN: usize = 60;
@@ -745,7 +745,7 @@ impl Animation for XRaySwarm {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut this_delay = self.delay;
 
         let draw_start = self.get_time();
@@ -824,7 +824,7 @@ impl Animation for XRaySwarm {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

@@ -4,8 +4,8 @@
 use crate::app::App;
 use crate::args::Args;
 use crate::config::Config;
-use clap::Parser;
-use std::io::Write;
+use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 
 /// Minimal stderr logger: writes `[LEVEL] message` lines. Level is fixed at
 /// init (Warn, or Debug with --debug).
@@ -26,6 +26,62 @@ impl log::Log for StderrLogger {
 }
 
 static LOGGER: StderrLogger = StderrLogger;
+
+struct TermiosRestore {
+    fd: libc::c_int,
+    termios: libc::termios,
+}
+
+impl Drop for TermiosRestore {
+    fn drop(&mut self) {
+        unsafe {
+            while libc::tcsetattr(self.fd, libc::TCSAFLUSH, &self.termios) != 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
+            {}
+        }
+    }
+}
+
+/// Read from the controlling terminal so redirected stdin cannot provide a password.
+fn read_password() -> std::io::Result<zeroize::Zeroizing<String>> {
+    let mut tty = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")?;
+    let fd = tty.as_raw_fd();
+    let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+    if unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let original = unsafe { original.assume_init() };
+    let _restore = TermiosRestore {
+        fd,
+        termios: original,
+    };
+    let mut no_echo = original;
+    no_echo.c_lflag &= !libc::ECHO;
+    if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &no_echo) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    let mut byte = [0_u8; 1];
+    loop {
+        match tty.read(&mut byte)? {
+            0 => break,
+            _ if byte[0] == b'\n' => break,
+            _ => bytes.push(byte[0]),
+        }
+    }
+    if bytes.last() == Some(&b'\r') {
+        bytes.pop();
+    }
+    std::str::from_utf8(&bytes)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    // UTF-8 was validated above; move the allocation directly into the wiped String.
+    Ok(zeroize::Zeroizing::new(unsafe {
+        String::from_utf8_unchecked(std::mem::take(&mut *bytes))
+    }))
+}
 
 /// Process-wide hardening, done before anything touches a password.
 fn harden_process() {
@@ -167,25 +223,19 @@ fn run_auth_test(args: &Args) {
     println!("Using backend: {}", backend_kind);
     println!("Authenticating as: {}\n", username);
 
-    let mut verifier = match crate::auth::create_verifier(backend_kind, &username) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Failed to initialize authentication verifier:");
-            eprintln!("  {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    println!("Authentication verifier initialized successfully.");
     println!("Enter password to test (Ctrl+C to cancel):\n");
 
     print!("Password: ");
     let _ = std::io::stdout().flush();
 
-    // Wrap so the plaintext heap copy is wiped on drop, matching the lock
-    // path's "no un-zeroized transient copy" guarantee. rpassword handles
-    // echo-off and restores the terminal on interrupt.
-    let password_input = zeroize::Zeroizing::new(rpassword::read_password().unwrap_or_default());
+    // Read from /dev/tty with echo disabled, so redirected stdin cannot submit a password.
+    let password_input = match read_password() {
+        Ok(password) => password,
+        Err(e) => {
+            eprintln!("Failed to read password: {e}");
+            std::process::exit(1);
+        }
+    };
 
     let mut password_buf = match crate::password::Password::new(256) {
         Ok(buf) => buf,
@@ -202,6 +252,17 @@ fn run_auth_test(args: &Args) {
             std::process::exit(1);
         }
     }
+
+    let mut verifier = match crate::auth::create_verifier(backend_kind, &username) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to initialize authentication verifier:");
+            eprintln!("  {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    println!("Authentication verifier initialized successfully.");
 
     println!("\nTesting authentication...");
 

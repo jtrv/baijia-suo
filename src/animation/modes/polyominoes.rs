@@ -17,7 +17,7 @@
  * Rust port of xscreensaver's polyominoes.c (xlockmore).
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 
 use crate::animation::primitives::{clear_buffer, draw_line, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -1160,7 +1160,7 @@ impl Polyominoes {
 
     /* init_polyominoes */
     fn init(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         // Board geometry and contents change wholesale.
         self.full_repaint.set(true);

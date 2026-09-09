@@ -22,6 +22,7 @@ mod breath;
 mod comet;
 mod dots;
 mod fade;
+mod glyphs;
 mod pen;
 mod pin_tumbler;
 mod ripple;

@@ -11,7 +11,7 @@
  * Rust port of xscreensaver's squiral.c.
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -116,7 +116,7 @@ impl Squiral {
     }
 
     fn do_worm(&mut self, i: usize) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut w = self.worms[i];
         let mut typ = w.s / 4;
         let mut dir = (w.s % 4) as usize;
@@ -184,7 +184,7 @@ impl Squiral {
 
     // squiral_init_1
     fn init_1(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.fill = vec![false; (self.width * self.height) as usize];
         self.dirh = [0, 1, 0, self.width - 1];
         self.dirv = [self.height - 1, 0, 1, 0];
@@ -268,7 +268,7 @@ impl Animation for Squiral {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.delay_us = DEF_DELAY_US;
         self.pix_w = config.width;

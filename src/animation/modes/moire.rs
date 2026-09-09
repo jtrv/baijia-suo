@@ -16,7 +16,7 @@
 
 use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 // defaults from moire.c: *delay: 5 (seconds), *ncolors: 64, *offset: 50,
 // *random: true, .background: blue, .foreground: red
@@ -159,7 +159,7 @@ impl Animation for Moire {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let w = self.width as i32;
         let h = self.height as i32;
 

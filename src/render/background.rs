@@ -36,7 +36,7 @@ pub fn render_solid_color_rect(
     for y in rect.y..rect.y + rect.height {
         let start = ((y * width + rect.x) * 4) as usize;
         let end = start + rect.width as usize * 4;
-        for dst in buf[start..end].chunks_exact_mut(4) {
+        for dst in buf[start..end].as_chunks_mut::<4>().0 {
             dst.copy_from_slice(&pixel);
         }
     }

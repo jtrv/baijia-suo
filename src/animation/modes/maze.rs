@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/maze.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 
 use crate::animation::primitives::{clear_buffer, draw_line, Color};
 use crate::animation::{AnimConfig, Animation};
@@ -88,7 +88,7 @@ fn fill_rectangle(
         for p in aligned.iter_mut() {
             *p = c;
         }
-        for chunk in pre.chunks_exact_mut(4).chain(post.chunks_exact_mut(4)) {
+        for chunk in pre.as_chunks_mut::<4>().0.iter_mut().chain(post.as_chunks_mut::<4>().0.iter_mut()) {
             chunk[0] = c_bytes[0];
             chunk[1] = c_bytes[1];
             chunk[2] = c_bytes[2];
@@ -277,7 +277,7 @@ impl Maze {
     }
 
     fn set_maze_sizes(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let rand_num = rng.random_range(0..4);
         self.threed = if rand_num == 1 { 1 } else { 0 };
         // Deviation from xlockmore: upstream picks space = 0 for 1 in 4
@@ -322,7 +322,7 @@ impl Maze {
     }
 
     fn initialize_maze(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         if self.config_ncolors > 2 {
             let h = rng.random_range(0.0..1.0);
             self.color = Color::from_hsl(h, 1.0, 0.5);
@@ -397,7 +397,7 @@ impl Maze {
     fn choose_door(&mut self) -> i32 {
         let mut candidates = [0, 0, 0, 0];
         let mut num_candidates = 0;
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         
         let cx = self.cur_sq_x;
         let cy = self.cur_sq_y;

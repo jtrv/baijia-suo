@@ -18,7 +18,7 @@
  * Rust port of xscreensaver/xlockmore's euler2d.c.
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 
 use crate::animation::primitives::{clear_buffer, draw_circle, draw_line, put_pixel, Color};
@@ -439,7 +439,7 @@ impl Euler2D {
         /* how many rotations to try to fill as much of screen as possible -
          * must be even */
         const NR_ROTATES: usize = 18;
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         /* -eulerpower is fixed at its default 1.0; the C clamps power to
          * [0.5, 3.0] and does `variable_boundary &= power == 1.0`. */

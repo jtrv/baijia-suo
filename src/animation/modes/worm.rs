@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/worm.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f32::consts::PI;
 use crate::animation::primitives::{Color, put_pixel};
 use crate::animation::{AnimConfig, Animation};
@@ -105,7 +105,7 @@ impl Worm {
     }
 
     fn init_state(config: &AnimConfig) -> Self {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         let nc = config.ncolors.max(2) as usize;
 
@@ -175,7 +175,7 @@ impl Worm {
         let xsize = self.xsize;
         let ysize = self.ysize;
         let circsize = self.circsize;
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         // Advance tail pointer and record erase position for the slot being overwritten.
         {

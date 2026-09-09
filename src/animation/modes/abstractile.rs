@@ -14,7 +14,7 @@
 
 use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::cell::Cell;
 use std::f64::consts::PI;
 
@@ -2147,7 +2147,7 @@ impl Animation for Abstractile {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let was_creating = self.mode == Mode::Create;
         /* if the window is too small, do nothing, sorry! */
         if self.width > 20 && self.height > 20 {

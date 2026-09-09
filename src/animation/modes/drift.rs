@@ -18,7 +18,7 @@
  * Rust port of xscreensaver/xlockmore's drift.c.
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
@@ -60,7 +60,7 @@ fn hsv_to_rgb(h: i32, s: f64, v: f64) -> Color {
 
 // LRAND(): a 31-bit random value
 fn lrand() -> u32 {
-    rand::rng().random::<u32>() & 0x7fff_ffff
+    crate::rng::rng().random::<u32>() & 0x7fff_ffff
 }
 
 pub struct Drift {

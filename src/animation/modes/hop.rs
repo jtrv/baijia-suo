@@ -22,7 +22,7 @@
 
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 
 // xlockmore attractor-type constants — values must match the C #defines exactly so
@@ -120,7 +120,7 @@ impl Hop {
 
     /// Re-randomise all attractor parameters (mirrors init_hop).
     fn randomize(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.op = nrand(&mut rng, OPS);
 
@@ -492,7 +492,7 @@ mod tests {
             hop.render(&mut buffer, 8, 8);
         }
 
-        assert!(buffer.chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 255]));
+        assert!(buffer.as_chunks::<4>().0.iter().all(|pixel| pixel == &[0, 0, 0, 255]));
         assert_eq!(hop.count, 0);
     }
 }

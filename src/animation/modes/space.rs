@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/space.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use crate::animation::primitives::{put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
 
@@ -104,7 +104,7 @@ impl Animation for Space {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         let cos_x = self.ax.cos();
         let sin_x = self.ax.sin();
@@ -243,7 +243,7 @@ impl Animation for Space {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         
         let count = if config.count <= 0 { 100 } else { config.count as usize };
         self.stars.clear();

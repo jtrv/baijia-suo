@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/vines.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::cell::Cell;
 use std::f64::consts::PI;
 use crate::animation::primitives::{draw_line, clear_buffer, Color};
@@ -74,7 +74,7 @@ pub struct Vines {
 
 impl Vines {
     fn init_vine(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.i = 0;
         self.a = 0;
@@ -95,7 +95,7 @@ impl Vines {
     }
 
     fn full_reset(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.iterations = 30 + rng.random_range(0..100i32);
         self.length = 0; // force init_vine on next tick
         self.i = 0;
@@ -105,7 +105,7 @@ impl Vines {
 
 impl Animation for Vines {
     fn new(config: &AnimConfig) -> Self {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let ncolors = config.ncolors.max(2) as usize;
         let count = config.count; // 0 means "whole vine per frame"
 

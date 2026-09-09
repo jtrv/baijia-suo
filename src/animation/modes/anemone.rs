@@ -12,7 +12,7 @@
  * utils/hsv.c / utils/colors.c ported inline).
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 
 use crate::animation::primitives::{draw_thick_line, make_smooth_colormap, Color};
@@ -136,7 +136,7 @@ impl Animation for Anemone {
 
     /* animateAnemone() minus the drawing (done in render). */
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.sint = self.turn.sin();
         self.cost = self.turn.cos();
@@ -165,7 +165,7 @@ impl Animation for Anemone {
     /* drawImage() for every arm.  The jitter is applied at draw time and
      * never stored back, exactly as in the C. */
     fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let (sint, cost) = (self.sint, self.cost);
         let mx2 = (self.mx / 2) as f64;
 
@@ -218,7 +218,7 @@ impl Animation for Anemone {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         let scr_width = config.width as i32;
         let scr_height = config.height as i32;

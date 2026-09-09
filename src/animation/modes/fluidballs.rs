@@ -14,7 +14,7 @@
  * Rust port of xscreensaver's fluidballs.c (mouse/FPS machinery omitted).
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::time::Instant;
 
 use crate::animation::primitives::{put_pixel, Color};
@@ -66,7 +66,7 @@ impl FluidBalls {
     /* Re-pick the color of the balls (recolor in the C source; the
        mouse-ball color is unused since there is no mouse). */
     fn recolor(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut ch = || ((0x8888u32 + rng.random_range(0..0x8888u32)) >> 8) as u8;
         self.color = Color::new(255, ch(), ch(), ch());
     }
@@ -75,7 +75,7 @@ impl FluidBalls {
     fn shake(&mut self) {
         let a = self.accx;
         let b = self.accy;
-        match rand::rng().random_range(0..4u32) {
+        match crate::rng::rng().random_range(0..4u32) {
             0 => {
                 self.accx = a;
                 self.accy = b;
@@ -260,7 +260,7 @@ impl Animation for FluidBalls {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.delay_us = 10_000;
 

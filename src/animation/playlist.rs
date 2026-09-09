@@ -46,7 +46,7 @@ impl Playlist {
         params: AnimConfig,
         background: (f64, f64, f64, f64),
     ) -> Option<Self> {
-        use rand::seq::SliceRandom;
+        use crate::rng::SliceRandom;
 
         let known: HashSet<String> = AnimRegistry::new().available_modes().into_iter().collect();
         let mut order: Vec<String> = modes
@@ -63,7 +63,7 @@ impl Playlist {
         if order.is_empty() {
             return None;
         }
-        order.shuffle(&mut rand::rng());
+        order.shuffle(&mut crate::rng::rng());
 
         // order[0] is registered (filtered above), so this is Some.
         let current = AnimationPlayer::new(&order[0], params.clone(), background)?;
@@ -88,11 +88,11 @@ impl Playlist {
     /// Advance to the next mode: reshuffle on wrap (avoiding an immediate
     /// repeat), rebuild the player, and restore the current surface size.
     fn switch_to_next(&mut self) -> bool {
-        use rand::seq::SliceRandom;
+        use crate::rng::SliceRandom;
         self.idx += 1;
         if self.idx >= self.order.len() {
             let last = self.order[self.order.len() - 1].clone();
-            self.order.shuffle(&mut rand::rng());
+            self.order.shuffle(&mut crate::rng::rng());
             if self.order.len() > 1 && self.order[0] == last {
                 self.order.swap(0, 1);
             }

@@ -19,7 +19,7 @@
 
 use crate::animation::primitives::{hsv_to_rgb, put_pixel, rgb16, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 /* Maximum number of points, maximum tail length, and the number of
  * forcefields/effects (hard-coded) */
@@ -180,12 +180,12 @@ impl WhirlwindWarp {
     }
 
     fn init(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.scrwid = config.width as i32;
         self.scrhei = config.height as i32;
         self.buffer = vec![0u8; config.width as usize * config.height as usize * 4];
-        for px in self.buffer.chunks_exact_mut(4) {
+        for px in self.buffer.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
 
@@ -279,7 +279,7 @@ impl Animation for WhirlwindWarp {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         if myrnd(&mut rng) > 0.75 {
             // Change one of the allocated colours to something near the current hue.

@@ -16,7 +16,7 @@
  * utils/colors.c's make_random_colormap ported inline).
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 
 use crate::animation::primitives::{hsv_to_rgb, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -1161,7 +1161,7 @@ impl Animation for Vermiculate {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut this_delay = 0u64;
         let mut loop_count = 0;
 
@@ -1239,7 +1239,7 @@ impl Animation for Vermiculate {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.wid = config.width as i32;
         self.hei = config.height as i32;

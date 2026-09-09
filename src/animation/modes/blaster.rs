@@ -20,7 +20,7 @@
 
 use crate::animation::primitives::{clear_buffer, draw_line, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 const BLACK: Color = Color { a: 255, r: 0, g: 0, b: 0 };
 // *r_color0..5 defaults
@@ -467,7 +467,7 @@ impl Animation for Blaster {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         // star field: erase, move (*move_stars: true), redraw
         if self.num_stars > 0 {
@@ -505,7 +505,7 @@ impl Animation for Blaster {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.width = config.width as i32;
         self.height = config.height as i32;
         self.scale = if config.width > 2560 || config.height > 2560 { 3 } else { 1 };

@@ -13,7 +13,7 @@
 
 use std::cell::Cell;
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use crate::animation::primitives::{clear_buffer, draw_circle, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
 
@@ -183,7 +183,7 @@ impl Animation for Grav {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.draw_ops.clear();
         self.star_ops.clear();
@@ -282,7 +282,7 @@ impl Animation for Grav {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

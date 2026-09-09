@@ -20,7 +20,7 @@
 //
 // Rust port of xlockmore/modes/galaxy.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use crate::animation::primitives::{put_pixel, Color, clear_buffer};
@@ -124,7 +124,7 @@ fn draw_star(buffer: &mut [u8], width: u32, height: u32, x: i32, y: i32, size: i
 
 impl Galaxy {
     fn startover(&mut self) -> bool {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.step = 0;
 
         let count = self.count;
@@ -450,7 +450,7 @@ impl Animation for Galaxy {
             Color::from_hsl(i as f32 / self.ncolors as f32, 1.0, 0.5)
         }).collect();
 
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.fisheye = rng.random_range(0..3) == 0;
         self.tracks = false;
         if !self.fisheye {

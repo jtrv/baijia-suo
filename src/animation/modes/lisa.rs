@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/lisa.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use crate::animation::primitives::{draw_line, Color};
@@ -102,7 +102,7 @@ impl Animation for Lisa {
             }
         }
 
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         for l in &mut self.lisajous {
             l.center_x += l.dx;
@@ -165,7 +165,7 @@ impl Animation for Lisa {
 
         self.maxcycles = MAXCYCLES * nsteps - 1;
         
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         
         self.lisajous.clear();
         for _ in 0..nlisajous {

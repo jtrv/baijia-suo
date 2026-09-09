@@ -17,7 +17,7 @@
 // Rust port of xlockmore/modes/pyro2.c.
 
 #![allow(dead_code, unused_variables, unused_assignments, unused_imports)]
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::sync::OnceLock;
 
 use crate::animation::primitives::{draw_line, Color};
@@ -149,7 +149,7 @@ fn get_color(hue_index: usize, ttl: i32) -> Color {
 
 impl Pyro {
     fn parabel(&mut self, width: u32, height: u32) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         if !self.para.init {
             self.para.phi = 80.0 + rng.random_range(0..20) as f64;
             self.para.v0 = 23.0;
@@ -194,7 +194,7 @@ impl Pyro {
         // Spark speed is radial; basing it on raw width balloons/crops on
         // ultrawide. Clamp the basis to a 16:9 width (same fix as life3d).
         let width = width.min(height * 16 / 9);
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         if !self.expl.init {
             self.expl.sparks.clear();
@@ -382,7 +382,7 @@ pub struct Pyro2 {
 
 impl Pyro2 {
     fn init_pyros(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         for (i, p) in self.pyros.iter_mut().enumerate() {
             p.stat = PyroStat::Wait;
             p.wait = (i * 100) as i32;

@@ -25,7 +25,7 @@
  * Rust port of xscreensaver's binaryring.c.
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f32::consts::PI;
 
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -338,7 +338,7 @@ impl Animation for BinaryRing {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         for i in 0..self.particles.len() {
             self.move_particle(i, &mut rng);
         }
@@ -359,7 +359,7 @@ impl Animation for BinaryRing {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width as i32;
         self.height = config.height as i32;
@@ -394,7 +394,7 @@ impl Animation for BinaryRing {
         self.buffer = vec![0u8; (self.width * self.height) as usize * 4];
         // Opaque black: alpha bytes are set once here and never touched by
         // the blend path.
-        for px in self.buffer.chunks_exact_mut(4) {
+        for px in self.buffer.as_chunks_mut::<4>().0 {
             px[3] = 0xff;
         }
     }

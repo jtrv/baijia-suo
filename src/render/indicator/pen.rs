@@ -9,12 +9,9 @@
 //! accumulates like cairo; `arc`/`move_to`/`line_to` build the current path;
 //! `fill`/`stroke` consume it (`stroke_preserve` keeps it).
 
-use skrifa::instance::{LocationRef, Size};
-use skrifa::outline::{DrawSettings, OutlinePen};
-use skrifa::{FontRef, GlyphId, MetadataProvider};
+use super::glyphs::{lookup, Cmd, NOTDEF, UNITS_PER_EM};
 use std::f64::consts::PI;
 use std::rc::Rc;
-use std::sync::OnceLock;
 use tiny_skia::{
     Color, FillRule, GradientStop, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap,
     Point, RadialGradient, Shader, SpreadMode, Stroke, Transform,
@@ -74,33 +71,16 @@ pub(super) struct Pen<'a> {
     stack: Vec<(Transform, Option<Rc<Mask>>)>,
 }
 
-/// Liberation Sans (SIL OFL), parsed at runtime by `skrifa` for the status
-/// text; outlines are rasterized by the same tiny-skia path fill used
-/// everywhere else in this file. Runtime rasterization (vs a fixed bitmap
-/// atlas) keeps the text crisp at any configured indicator radius.
-const FONT_BYTES: &[u8] = include_bytes!("../../../fonts/LiberationSans-Regular.ttf");
-
-/// The parsed bundled font, or `None` if it failed to parse (text is then
-/// skipped rather than crashing).
-fn font() -> Option<&'static FontRef<'static>> {
-    static FONT: OnceLock<Option<FontRef<'static>>> = OnceLock::new();
-    FONT.get_or_init(|| FontRef::new(FONT_BYTES).ok()).as_ref()
-}
-
 // Liberation Sans cap height is ~0.72 em, so em ≈ size / 0.72 for a target
 // cap height of `size` px.
-fn glyph_size(size: f64) -> Size {
-    Size::new((size / 0.72) as f32)
+fn glyph_scale(size: f64) -> f32 {
+    (size / 0.72) as f32 / UNITS_PER_EM as f32
 }
 
 /// Width in px of `text` rendered at cap height `size`.
 fn text_width(size: f64, text: &str) -> f32 {
-    let Some(font) = font() else { return 0.0 };
-    let charmap = font.charmap();
-    let metrics = font.glyph_metrics(glyph_size(size), LocationRef::default());
     text.chars()
-        .map(|c| charmap.map(c).unwrap_or(GlyphId::NOTDEF))
-        .filter_map(|gid| metrics.advance_width(gid))
+        .map(|c| lookup(c).unwrap_or(&NOTDEF).advance as f32 * glyph_scale(size))
         .sum()
 }
 
@@ -151,8 +131,8 @@ fn split_sentences(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Feeds skrifa's scaled glyph outline commands into a tiny-skia
-/// `PathBuilder`, positioned at pen `(x, baseline)` and flipped from font
+/// Replays a glyph-table outline into a tiny-skia `PathBuilder`, positioned at
+/// pen `(x, baseline)` and flipped from font
 /// convention (origin at the glyph's advance point, y-up) to device space
 /// (y-down).
 struct GlyphPen<'a> {
@@ -161,33 +141,33 @@ struct GlyphPen<'a> {
     baseline: f32,
 }
 
-impl OutlinePen for GlyphPen<'_> {
-    fn move_to(&mut self, x: f32, y: f32) {
-        self.pb.move_to(self.x + x, self.baseline - y);
-    }
-    fn line_to(&mut self, x: f32, y: f32) {
-        self.pb.line_to(self.x + x, self.baseline - y);
-    }
-    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
-        self.pb.quad_to(
-            self.x + cx0,
-            self.baseline - cy0,
-            self.x + x,
-            self.baseline - y,
-        );
-    }
-    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
-        self.pb.cubic_to(
-            self.x + cx0,
-            self.baseline - cy0,
-            self.x + cx1,
-            self.baseline - cy1,
-            self.x + x,
-            self.baseline - y,
-        );
-    }
-    fn close(&mut self) {
-        self.pb.close();
+impl GlyphPen<'_> {
+    fn replay(&mut self, outline: &[Cmd], scale: f32) {
+        for command in outline {
+            match *command {
+                Cmd::MoveTo(x, y) => self
+                    .pb
+                    .move_to(self.x + x as f32 * scale, self.baseline - y as f32 * scale),
+                Cmd::LineTo(x, y) => self
+                    .pb
+                    .line_to(self.x + x as f32 * scale, self.baseline - y as f32 * scale),
+                Cmd::QuadTo(cx, cy, x, y) => self.pb.quad_to(
+                    self.x + cx as f32 * scale,
+                    self.baseline - cy as f32 * scale,
+                    self.x + x as f32 * scale,
+                    self.baseline - y as f32 * scale,
+                ),
+                Cmd::CubicTo(cx0, cy0, cx1, cy1, x, y) => self.pb.cubic_to(
+                    self.x + cx0 as f32 * scale,
+                    self.baseline - cy0 as f32 * scale,
+                    self.x + cx1 as f32 * scale,
+                    self.baseline - cy1 as f32 * scale,
+                    self.x + x as f32 * scale,
+                    self.baseline - y as f32 * scale,
+                ),
+                Cmd::Close => self.pb.close(),
+            }
+        }
     }
 }
 
@@ -258,12 +238,7 @@ impl<'a> Pen<'a> {
         text: &str,
         rgb: (f64, f64, f64),
     ) {
-        let Some(font) = font() else { return };
-        let scale = glyph_size(size);
-        let location = LocationRef::default();
-        let charmap = font.charmap();
-        let metrics = font.glyph_metrics(scale, location);
-        let outlines = font.outline_glyphs();
+        let scale = glyph_scale(size);
         let paint = Paint {
             shader: Shader::SolidColor(color(rgb.0, rgb.1, rgb.2, 1.0)),
             anti_alias: true,
@@ -271,30 +246,24 @@ impl<'a> Pen<'a> {
         };
         let mut x = x_left;
         for c in text.chars() {
-            let gid = charmap.map(c).unwrap_or(GlyphId::NOTDEF);
-            if let Some(outline) = outlines.get(gid) {
-                let mut pb = PathBuilder::new();
-                let mut pen = GlyphPen {
-                    pb: &mut pb,
-                    x,
-                    baseline,
-                };
-                if outline
-                    .draw(DrawSettings::unhinted(scale, location), &mut pen)
-                    .is_ok()
-                {
-                    if let Some(path) = pb.finish() {
-                        self.pix.fill_path(
-                            &path,
-                            &paint,
-                            FillRule::Winding,
-                            Transform::identity(),
-                            None,
-                        );
-                    }
-                }
+            let glyph = lookup(c).unwrap_or(&NOTDEF);
+            let mut pb = PathBuilder::new();
+            GlyphPen {
+                pb: &mut pb,
+                x,
+                baseline,
             }
-            x += metrics.advance_width(gid).unwrap_or(0.0);
+            .replay(glyph.outline, scale);
+            if let Some(path) = pb.finish() {
+                self.pix.fill_path(
+                    &path,
+                    &paint,
+                    FillRule::Winding,
+                    Transform::identity(),
+                    None,
+                );
+            }
+            x += glyph.advance as f32 * scale;
         }
     }
 
@@ -442,13 +411,13 @@ impl<'a> Pen<'a> {
 mod tests {
     use super::*;
 
-    /// The font is a compile-time constant, so a parse failure means the asset
-    /// was swapped or truncated — and `font()` degrades to drawing no text at
-    /// all, which on a locker hides "Wrong" and every PAM message.
+    /// Status-text glyphs cover ASCII plus representative localized PAM characters.
     #[test]
-    fn bundled_font_parses() {
-        let font = font().expect("bundled Liberation Sans must parse");
-        assert!(font.charmap().map('A').is_some());
+    fn status_text_glyphs_are_present() {
+        assert!((0x20..=0x7e).all(|code| lookup(char::from_u32(code).unwrap()).is_some()));
+        assert!(lookup('é').is_some());
+        assert!(lookup('Ж').is_some());
+        assert!(lookup('Ω').is_some());
     }
 
     /// PAM messages arrive in the system locale. Liberation Sans has no CJK
@@ -456,11 +425,8 @@ mod tests {
     /// than vanishing — a blank line reads as "no message".
     #[test]
     fn uncovered_chars_fall_back_to_notdef() {
-        let font = font().unwrap();
-        assert!(font.charmap().map('あ').is_none());
-
-        let outlines = font.outline_glyphs();
-        assert!(outlines.get(GlyphId::NOTDEF).is_some());
+        assert!(lookup('あ').is_none());
+        assert!(!NOTDEF.outline.is_empty());
         assert!(text_width(20.0, "あ") > 0.0);
     }
 

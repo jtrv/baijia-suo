@@ -21,7 +21,7 @@
 // Rust port of xlockmore/modes/flow.c.
 
 #![allow(dead_code, unused_variables, unused_assignments, unused_imports)]
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64;
 
 use crate::animation::primitives::{draw_line, Color};
@@ -127,7 +127,7 @@ enum Chaseto {
 }
 
 
-fn gauss_rand(rng: &mut impl rand::RngExt, a: f64) -> f64 {
+fn gauss_rand(rng: &mut impl crate::rng::RngExt, a: f64) -> f64 {
     let mut x: f64;
     let mut y: f64;
     let mut w: f64;
@@ -143,7 +143,7 @@ fn gauss_rand(rng: &mut impl rand::RngExt, a: f64) -> f64 {
     (a / 3.0) * x * w
 }
 
-fn balance_rand(rng: &mut impl rand::RngExt, v: f64) -> f64 {
+fn balance_rand(rng: &mut impl crate::rng::RngExt, v: f64) -> f64 {
     rng.random_range(0.0..1.0) * v - (v / 2.0)
 }
 
@@ -283,7 +283,7 @@ pub struct Flow {
 
 impl Flow {
     fn discover(&mut self) -> bool {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         if self.count2 == 0 {
             self.p2[0].x = gauss_rand(&mut rng, self.range.x);
             self.p2[0].y = if self.yperiod > 0.0 {
@@ -379,7 +379,7 @@ impl Flow {
     }
 
     fn restart_flow(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.count = 0;
         for b in 0..self.beecount {
             self.p[b][0].x = gauss_rand(&mut rng, self.range.x);
@@ -393,7 +393,7 @@ impl Flow {
     }
 
     fn do_init(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         
         self.count2 = 0;
         
@@ -529,7 +529,7 @@ impl Animation for Flow {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         if self.searchp {
             if self.count2 == 0 {

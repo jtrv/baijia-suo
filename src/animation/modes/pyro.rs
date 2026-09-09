@@ -23,7 +23,7 @@
 // Defaults handled at the bottom of `reset()` using `config.* == 0` as the
 // "unset" sentinel — that's how the rest of this project's ports do it.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f32::consts::PI;
 
 use crate::animation::primitives::{put_pixel, Color};
@@ -311,7 +311,7 @@ impl Animation for Pyro {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         // Ignition step — mirrors the top of xlockmore's `draw_pyro`.
         if self.just_started || (self.p_ignite > 0 && rng.random_range(0..self.p_ignite) == 0) {
@@ -478,7 +478,7 @@ impl Animation for Pyro {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

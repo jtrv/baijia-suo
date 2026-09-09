@@ -18,7 +18,7 @@
 
 use crate::animation::primitives::{draw_thick_line, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f32::consts::PI;
 
 const MAXLENGTH: usize = 50;
@@ -83,7 +83,7 @@ impl Braid {
     }
 
     fn init_braid(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.center_x = self.width as f32 / 2.0;
         self.center_y = self.height as f32 / 2.0;

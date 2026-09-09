@@ -1,0 +1,10 @@
+[package]
+name = "gen-glyphs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+skrifa = "0.45"
+
+[workspace]

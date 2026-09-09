@@ -53,7 +53,7 @@
 
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::f64::consts::PI;
@@ -361,7 +361,7 @@ fn rotate_z(v: Vec3, a: f64) -> Vec3 {
 /// rotation around an axis. `pos` is in turns (range -1..1), `v` is velocity,
 /// `dv` is acceleration, `max_v` clamps velocity magnitude.
 fn rotate_axis(pos: &mut f64, v: &mut f64, dv: &mut f64, max_v: f64) {
-    let mut rng = rand::rng();
+    let mut rng = crate::rng::rng();
     let mut ppos = *pos;
     if ppos < 0.0 {
         ppos = -(ppos + *v);
@@ -446,7 +446,7 @@ pub struct Molecule {
 }
 
 impl Molecule {
-    fn pick_new_molecule(&mut self, rng: &mut rand::rngs::ThreadRng) {
+    fn pick_new_molecule(&mut self, rng: &mut crate::rng::Rng) {
         if self.molecules.len() <= 1 {
             self.which = 0;
             return;
@@ -495,7 +495,7 @@ impl Animation for Molecule {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.width = config.width.max(1);
         self.height = config.height.max(1);
 
@@ -504,8 +504,8 @@ impl Animation for Molecule {
         let accel = 0.3_f64;
         let d = 0.006_f64;
         let dd = 0.00006_f64;
-        let sign = |r: &mut rand::rngs::ThreadRng| if r.random::<bool>() { 1.0 } else { -1.0 };
-        let bell = |r: &mut rand::rngs::ThreadRng| {
+        let sign = |r: &mut crate::rng::Rng| if r.random::<bool>() { 1.0 } else { -1.0 };
+        let bell = |r: &mut crate::rng::Rng| {
             (r.random::<f64>() + r.random::<f64>() + r.random::<f64>()) / 3.0
         };
 
@@ -538,7 +538,7 @@ impl Animation for Molecule {
 
     fn tick(&mut self) {
         let now = now_secs();
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         match self.mode {
             0 => {

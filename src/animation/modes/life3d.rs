@@ -26,7 +26,7 @@
 //! height map (only cube tops visible). We compress the sweep to 15..55
 //! degrees (20*sin+35) so the lattice always shows three cube faces.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::f64::consts::PI;
@@ -350,7 +350,7 @@ impl Life3D {
     /// RandomSoup: 30% soup in a small centered box, usually with a mirror
     /// or diagonal symmetry, exactly like the C's active code paths.
     fn random_soup(&mut self, n: i32) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let hc = MAXCOLUMNS / 2;
         let hr = MAXROWS / 2;
         let hs = MAXSTACKS / 2;
@@ -386,7 +386,7 @@ impl Life3D {
         vy = (vy / 2).max(1);
         vz = (vz / 2).max(1);
 
-        let hit = |rng: &mut rand::rngs::ThreadRng, p: i32| rng.random_range(0..100) < p;
+        let hit = |rng: &mut crate::rng::Rng, p: i32| rng.random_range(0..100) < p;
 
         if xrand == NOSYMRAND && yrand == NOSYMRAND && zrand == NOSYMRAND {
             for stack in (hs - vz)..(hs + vz) {
@@ -605,7 +605,7 @@ impl Life3D {
     /// Three neighboring hues off the ncolors wheel, randomly rotated among
     /// the red/green/blue face slots (init_life3d's color pick).
     fn pick_colors(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let nc = self.ncolors.max(6);
         let j = rng.random_range(0..nc);
         let i = rng.random_range(0..3) as usize;
@@ -817,7 +817,7 @@ impl Animation for Life3D {
     fn reset(&mut self, config: &AnimConfig) {
         self.width = config.width.max(1);
         self.height = config.height.max(1);
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.meta_alt = rng.random_range(0.0..360.0);
         self.meta_azm = rng.random_range(0.0..360.0);
         self.meta_dist = rng.random_range(0.0..360.0);

@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/spiral.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 use crate::animation::primitives::{put_pixel, Color};
@@ -109,7 +109,7 @@ impl Animation for Spiral {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.cx += self.dx;
         if self.cx > 9000.0 || self.cx < 1000.0 {
@@ -188,7 +188,7 @@ impl Animation for Spiral {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.trail.clear();
         self.width = config.width;

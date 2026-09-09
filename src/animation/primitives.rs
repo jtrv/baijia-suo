@@ -1,4 +1,4 @@
-use rand::RngExt;
+use crate::rng::RngExt;
 
 /// A simple ARGB color representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,7 +89,12 @@ pub fn clear_buffer(buffer: &mut [u8], color: Color) {
     }
 
     // Fallback for non-aligned (shouldn't happen for 4-byte pixels aligned properly)
-    for chunk in pre.chunks_exact_mut(4).chain(post.chunks_exact_mut(4)) {
+    for chunk in pre
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .chain(post.as_chunks_mut::<4>().0.iter_mut())
+    {
         chunk[0] = color.b;
         chunk[1] = color.g;
         chunk[2] = color.r;

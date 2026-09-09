@@ -67,9 +67,9 @@ impl App {
             config.background_color.a,
         );
 
-        use rand::seq::SliceRandom;
+        use crate::rng::SliceRandom;
         let mut segment_sequence: Vec<usize> = (0..NUM_SEGMENTS).collect();
-        segment_sequence.shuffle(&mut rand::rng());
+        segment_sequence.shuffle(&mut crate::rng::rng());
 
         App {
             auth_state: AuthState::Idle,
@@ -597,13 +597,13 @@ mod tests {
     const SENTINEL: u8 = 0xa5;
 
     fn assert_untouched_outside(buf: &[u8], width: i32, rect: Option<DamageRect>) {
-        for (pixel, bytes) in buf.chunks_exact(4).enumerate() {
+        for (pixel, bytes) in buf.as_chunks::<4>().0.iter().enumerate() {
             let x = pixel as i32 % width;
             let y = pixel as i32 / width;
             let touched = rect
                 .is_some_and(|r| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
             if !touched {
-                assert_eq!(bytes, [SENTINEL; 4], "pixel ({x}, {y}) changed");
+                assert_eq!(*bytes, [SENTINEL; 4], "pixel ({x}, {y}) changed");
             }
         }
     }

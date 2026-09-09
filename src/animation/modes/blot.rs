@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/blot.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::cell::Cell;
 
 use crate::animation::primitives::{clear_buffer, put_pixel, Color};
@@ -54,7 +54,7 @@ pub struct Blot {
 
 impl Blot {
     fn init(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.xmid = (self.width / 2) as i32;
         self.ymid = (self.height / 2) as i32;
@@ -117,7 +117,7 @@ impl Animation for Blot {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         if self.count > self.cycles {
             self.init();

@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/lissie.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 use crate::animation::primitives::{draw_circle, put_pixel, Color};
 use crate::animation::{AnimConfig, Animation};
@@ -306,7 +306,7 @@ impl Animation for Lissie {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.loopcount += 1;
         if self.loopcount > self.cycles {
@@ -340,7 +340,7 @@ impl Animation for Lissie {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

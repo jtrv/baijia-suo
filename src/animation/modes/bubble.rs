@@ -18,7 +18,7 @@
 //
 // Rust port of xlockmore/modes/bubble.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f32::consts::PI;
 use crate::animation::primitives::{put_pixel, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -160,7 +160,7 @@ impl Animation for Bubble {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         // All original xlockmore logic (color cycle, growth, pop, spawn)
         // advances once per SUBSTEPS ticks — the original 100ms cadence.
@@ -262,7 +262,7 @@ impl Animation for Bubble {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width;
         self.height = config.height;

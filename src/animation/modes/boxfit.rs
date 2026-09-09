@@ -25,7 +25,7 @@ use crate::animation::primitives::{
     clear_buffer, draw_circle, draw_line, hsv_to_rgb, put_pixel, rgb16, Color,
 };
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
-use rand::RngExt;
+use crate::rng::RngExt;
 
 const ALIVE: u8 = 1;
 const CHANGED: u8 = 2;
@@ -511,7 +511,7 @@ impl Animation for BoxFit {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         if self.growing_p {
             self.draw_boxes();
             self.this_delay = self.grow_boxes(&mut rng);
@@ -527,7 +527,7 @@ impl Animation for BoxFit {
     }
 
     fn reset(&mut self, config: &AnimConfig) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.width = config.width as i32;
         self.height = config.height as i32;

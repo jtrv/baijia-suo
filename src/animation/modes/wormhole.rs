@@ -17,7 +17,7 @@
  * Rust port of xscreensaver's wormhole.c.
  */
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::f64::consts::PI;
@@ -199,7 +199,7 @@ pub struct Wormhole {
 
 impl Wormhole {
     fn build(config: &AnimConfig) -> Wormhole {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let screen_x = config.width as i32;
         let screen_y = config.height as i32;
         let actualx = screen_x / 2;
@@ -263,7 +263,7 @@ impl Animation for Wormhole {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let min_dist = 100;
         let mut find = false;
 

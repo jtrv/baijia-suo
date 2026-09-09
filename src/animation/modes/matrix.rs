@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/matrix.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::cell::RefCell;
 
 use crate::animation::primitives::{put_pixel, Color};
@@ -322,7 +322,7 @@ impl Matrix {
     /// Reinitialise a column to start a fresh fall from above the top of
     /// the screen with a random offset, speed, and trail length.
     fn respawn(&self, c: &mut Column) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         for slot in c.glyphs.iter_mut() {
             *slot = EMPTY_GLYPH;
@@ -335,7 +335,7 @@ impl Matrix {
 
         // Trail length in cells: pick something proportional to screen
         // height but with plenty of variety. green_rust uses
-        // (rand 8..rows) by default; do the same with a sensible floor.
+        // (a random value from 8 through rows) by default; do the same with a sensible floor.
         let min_trail = 6;
         let max_trail = (self.rows / 2).max(min_trail + 2);
         c.trail_len = rng.random_range(min_trail..=max_trail);
@@ -365,7 +365,7 @@ impl Animation for Matrix {
     }
 
     fn tick(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut columns = self.columns.borrow_mut();
 
         for c in columns.iter_mut() {
@@ -475,7 +475,7 @@ impl Animation for Matrix {
 
             // Stagger the initial head positions so the screen doesn't
             // start with every stream in lock-step above the top edge.
-            let mut rng = rand::rng();
+            let mut rng = crate::rng::rng();
             c.head = rng.random_range(-(self.rows)..self.rows);
             // Pre-fill any rows already on-screen with random glyphs so
             // streams that start mid-screen look natural.

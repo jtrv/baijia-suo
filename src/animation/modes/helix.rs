@@ -16,7 +16,7 @@
 //
 // Rust port of xlockmore/modes/helix.c.
 
-use rand::RngExt;
+use crate::rng::RngExt;
 use std::f64::consts::PI;
 use crate::animation::primitives::{draw_line, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
@@ -196,7 +196,7 @@ impl Helix {
     }
 
     fn randomize(&mut self) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         self.color = rng.random_range(0..self.ncolors);
 
@@ -244,7 +244,7 @@ impl Helix {
                 d_angle = rng.random_range(0..ANGLES as i32);
             }
 
-            let random_factor = |rng: &mut rand::rngs::ThreadRng| -> i32 {
+            let random_factor = |rng: &mut crate::rng::Rng| -> i32 {
                 let mag = if rng.random_range(0..7u32) != 0 {
                     (rng.random_range(0..2u32) + 1) as i32
                 } else {
