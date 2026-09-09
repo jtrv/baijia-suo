@@ -30,6 +30,7 @@ static LOGGER: StderrLogger = StderrLogger;
 struct TermiosRestore {
     fd: libc::c_int,
     termios: libc::termios,
+    sigint: libc::sigaction,
 }
 
 impl Drop for TermiosRestore {
@@ -38,9 +39,12 @@ impl Drop for TermiosRestore {
             while libc::tcsetattr(self.fd, libc::TCSAFLUSH, &self.termios) != 0
                 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
             {}
+            libc::sigaction(libc::SIGINT, &self.sigint, std::ptr::null_mut());
         }
     }
 }
+
+extern "C" fn sigint_noop(_: libc::c_int) {}
 
 /// Read from the controlling terminal so redirected stdin cannot provide a password.
 fn read_password() -> std::io::Result<zeroize::Zeroizing<String>> {
@@ -54,9 +58,20 @@ fn read_password() -> std::io::Result<zeroize::Zeroizing<String>> {
         return Err(std::io::Error::last_os_error());
     }
     let original = unsafe { original.assume_init() };
+    let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };
+    sa.sa_sigaction = sigint_noop as *const () as libc::sighandler_t;
+    // Deliberately no SA_RESTART: ^C must make the read fail with EINTR so
+    // the guard below restores echo instead of the process dying with it off.
+    sa.sa_flags = 0;
+    unsafe { libc::sigemptyset(&mut sa.sa_mask) };
+    let mut prev_sigint = std::mem::MaybeUninit::<libc::sigaction>::uninit();
+    if unsafe { libc::sigaction(libc::SIGINT, &sa, prev_sigint.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
     let _restore = TermiosRestore {
         fd,
         termios: original,
+        sigint: unsafe { prev_sigint.assume_init() },
     };
     let mut no_echo = original;
     no_echo.c_lflag &= !libc::ECHO;

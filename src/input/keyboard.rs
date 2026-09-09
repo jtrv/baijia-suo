@@ -25,6 +25,8 @@ impl KeyboardHandler {
     }
 
     /// Update the keymap from a Wayland keymap event.
+    ///
+    /// `fd` stays owned by the caller; closing it here would double-close.
     pub fn update_keymap(&mut self, fd: RawFd, size: usize) -> Result<(), String> {
         let mmap_ptr = unsafe {
             libc::mmap(
@@ -38,7 +40,6 @@ impl KeyboardHandler {
         };
 
         if mmap_ptr == libc::MAP_FAILED {
-            unsafe { libc::close(fd) };
             return Err("Failed to mmap keymap".into());
         }
 
@@ -56,15 +57,13 @@ impl KeyboardHandler {
             keymap_str,
             xkb::KEYMAP_FORMAT_TEXT_V1,
             xkb::KEYMAP_COMPILE_NO_FLAGS,
-        )
-        .ok_or("Failed to create keymap from string")?;
+        );
 
-        self.state = Some(State::new(&keymap));
+        unsafe { libc::munmap(mmap_ptr, size) };
 
-        unsafe {
-            libc::munmap(mmap_ptr, size);
-            libc::close(fd);
-        }
+        self.state = Some(State::new(
+            &keymap.ok_or("Failed to create keymap from string")?,
+        ));
 
         Ok(())
     }

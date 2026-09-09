@@ -163,6 +163,8 @@ pub struct IndicatorStyle {
     pub caps_lock: bool,
 }
 
+const MAX_BELOW_LINES: usize = 6;
+
 /// Draw the typing indicator in the style's `mode`.
 ///
 /// The indicator is rendered into a small tiny-skia [`Pixmap`] (RGBA,
@@ -195,6 +197,9 @@ pub(crate) fn render_indicator(
     if let Some(msg) = ctx.message {
         below_lines.extend(pen::wrap(below_size, wrap_w, msg));
     }
+    // A PAM message may be 4 KiB; unbounded wrapping would grow the pixmap
+    // to tens of megabytes, recomposited every frame for the message TTL.
+    below_lines.truncate(MAX_BELOW_LINES);
 
     // Bounding box: the ring's own pushes (pin-tumbler ~1.4r) / glows (~1.25r)
     // stay inside 1.5r. Keep the pixmap square and ring-centered — pointing
@@ -339,4 +344,48 @@ pub(crate) fn render_indicator(
         buf_w,
         buf_h,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_pam_message_does_not_balloon_the_pixmap() {
+        let (buf_w, buf_h) = (2000_i32, 2000_i32);
+        let mut buf = vec![0u8; (buf_w as usize) * (buf_h as usize) * 4];
+        let msg = "lockout ".repeat(512);
+        assert_eq!(msg.len(), 4096);
+        let seq: Vec<usize> = (0..12).collect();
+        let ctx = IndicatorCtx {
+            x: f64::from(buf_w) / 2.0,
+            y: f64::from(buf_h) / 2.0,
+            radius: 40.0,
+            thickness: 6.0,
+            num_segments: 12,
+            now: Instant::now(),
+            auth_state: AuthState::Invalid,
+            keystrokes: &[],
+            verification_start: None,
+            auth_complete_time: None,
+            segment_sequence: &seq,
+            failed_attempts: 3,
+            message: Some(&msg),
+        };
+        let style = IndicatorStyle {
+            mode: IndicatorMode::default(),
+            opacity: 1.0,
+            color: None,
+            caps_lock: false,
+        };
+        let damage = render_indicator(&mut buf, buf_w, buf_h, &ctx, &style)
+            .expect("render")
+            .expect("damage");
+        assert!(
+            damage.width <= 400 && damage.height <= 400,
+            "indicator pixmap grew to {}x{}",
+            damage.width,
+            damage.height
+        );
+    }
 }

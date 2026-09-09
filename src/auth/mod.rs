@@ -90,6 +90,10 @@ fn drop_privileges() {
         eprintln!("auth child: still root after privilege drop!");
         unsafe { libc::_exit(1) };
     }
+
+    // The kernel resets dumpable to fs.suid_dumpable when setresgid changes
+    // the egid, so re-clear it or the plaintext password becomes ptrace-able.
+    unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
 }
 
 /// Authenticate against the dedicated PAM service if the admin installed

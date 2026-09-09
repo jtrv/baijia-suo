@@ -308,8 +308,9 @@ impl Animation for Helix {
             canvas: {
                 // Initialize to opaque black so undrawn pixels are not transparent.
                 let mut v = vec![0u8; canvas_len];
-                let pixels = unsafe { std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u32, canvas_len / 4) };
-                pixels.fill(0xFF00_0000u32);
+                for px in v.as_chunks_mut::<4>().0 {
+                    px.copy_from_slice(&0xFF00_0000u32.to_ne_bytes());
+                }
                 v
             },
             delay_us: config.delay_us,
@@ -322,8 +323,9 @@ impl Animation for Helix {
         self.time += 1;
         if self.time > self.cycles {
             // Clear canvas to opaque black and redraw a new pattern.
-            let pixels = unsafe { std::slice::from_raw_parts_mut(self.canvas.as_mut_ptr() as *mut u32, self.canvas.len() / 4) };
-            pixels.fill(0xFF00_0000u32);
+            for px in self.canvas.as_chunks_mut::<4>().0 {
+                px.copy_from_slice(&0xFF00_0000u32.to_ne_bytes());
+            }
             self.time = 0;
             self.randomize();
         }
@@ -346,8 +348,9 @@ impl Animation for Helix {
         let canvas_len = (config.width * config.height * 4) as usize;
         self.canvas = {
             let mut v = vec![0u8; canvas_len];
-            let pixels = unsafe { std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u32, canvas_len / 4) };
-            pixels.fill(0xFF00_0000u32);
+            for px in v.as_chunks_mut::<4>().0 {
+                px.copy_from_slice(&0xFF00_0000u32.to_ne_bytes());
+            }
             v
         };
         self.randomize();

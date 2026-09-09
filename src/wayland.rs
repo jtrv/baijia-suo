@@ -862,6 +862,12 @@ impl Dispatch<WlKeyboard, ()> for WaylandState {
                     }
                 }
             }
+            Event::Leave { .. } => {
+                // Protocol: all keys are released on leave, so no key-up
+                // event will arrive to stop an in-flight repeat.
+                state.repeat_key = None;
+                state.repeat_next = None;
+            }
             Event::Modifiers {
                 mods_depressed,
                 mods_latched,
