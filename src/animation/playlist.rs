@@ -116,10 +116,10 @@ impl Playlist {
         let mut changed = false;
         if self.multi() {
             match self.switch_at {
-                None => self.switch_at = Some(now + self.cycle),
+                None => self.switch_at = now.checked_add(self.cycle),
                 Some(at) if now >= at => {
                     changed = self.switch_to_next();
-                    self.switch_at = Some(now + self.cycle);
+                    self.switch_at = now.checked_add(self.cycle);
                 }
                 Some(_) => {}
             }

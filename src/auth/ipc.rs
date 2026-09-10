@@ -3,7 +3,7 @@
 //! Uses length-prefixed messages with proper EINTR handling for signal safety.
 
 use crate::secure::SecureBuffer;
-use std::io::{self};
+use std::io::{self, Read};
 use std::os::unix::io::RawFd;
 use zeroize::Zeroize;
 
@@ -136,19 +136,60 @@ pub fn write_reply(fd: RawFd, success: bool, message: Option<&str>) -> io::Resul
 /// Read an authentication reply from the IPC channel: the success flag and any
 /// PAM message the child relayed (`None` if empty).
 pub fn read_reply(fd: RawFd) -> io::Result<(bool, Option<String>)> {
+    read_reply_from(&mut FdReader { fd })
+}
+
+struct FdReader {
+    fd: RawFd,
+}
+
+impl Read for FdReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            let result =
+                unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+            if result >= 0 {
+                return Ok(result as usize);
+            }
+            let err = io::Error::last_os_error();
+            if err.kind() != io::ErrorKind::Interrupted {
+                return Err(err);
+            }
+        }
+    }
+}
+
+fn read_reply_from(reader: &mut impl Read) -> io::Result<(bool, Option<String>)> {
     let mut byte = [0u8];
-    read_full(fd, &mut byte)?;
-    let success = byte[0] != 0;
+    reader.read_exact(&mut byte)?;
+    let success = match byte[0] {
+        0 => false,
+        1 => true,
+        status => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid reply status {status}"),
+            ))
+        }
+    };
 
     let mut len_bytes = [0u8; 2];
-    read_full(fd, &mut len_bytes)?;
+    reader.read_exact(&mut len_bytes)?;
     let len = u16::from_be_bytes(len_bytes) as usize;
+    if len > MAX_MSG_LEN {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("reply message length {len} exceeds maximum {MAX_MSG_LEN}"),
+        ));
+    }
     if len == 0 {
         return Ok((success, None));
     }
     let mut buf = vec![0u8; len];
-    read_full(fd, &mut buf)?;
-    Ok((success, Some(String::from_utf8_lossy(&buf).into_owned())))
+    reader.read_exact(&mut buf)?;
+    let message = String::from_utf8(buf)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "reply message is not UTF-8"))?;
+    Ok((success, Some(message)))
 }
 
 #[cfg(test)]
@@ -156,6 +197,34 @@ mod tests {
     use super::*;
 
     use std::thread;
+
+    struct FragmentedReader {
+        bytes: Vec<u8>,
+        pos: usize,
+        chunk: usize,
+    }
+
+    impl Read for FragmentedReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.pos == self.bytes.len() {
+                return Ok(0);
+            }
+            let n = (self.bytes.len() - self.pos).min(self.chunk).min(buf.len());
+            buf[..n].copy_from_slice(&self.bytes[self.pos..self.pos + n]);
+            self.pos += n;
+            Ok(n)
+        }
+    }
+
+    fn reply_error(bytes: &[u8]) -> io::ErrorKind {
+        read_reply_from(&mut FragmentedReader {
+            bytes: bytes.to_vec(),
+            pos: 0,
+            chunk: 1,
+        })
+        .unwrap_err()
+        .kind()
+    }
 
     fn create_pipe() -> (RawFd, RawFd) {
         let mut fds = [0 as RawFd, 0 as RawFd];
@@ -296,5 +365,45 @@ mod tests {
             libc::close(rfd);
             libc::close(wfd);
         }
+    }
+
+    #[test]
+    fn reply_reader_rejects_malformed_frames() {
+        let cases: &[(&str, Vec<u8>, io::ErrorKind)] = &[
+            ("invalid status", vec![2], io::ErrorKind::InvalidData),
+            (
+                "oversize message",
+                vec![0, 0x10, 0x01],
+                io::ErrorKind::InvalidData,
+            ),
+            ("eof after status", vec![1], io::ErrorKind::UnexpectedEof),
+            ("eof mid-length", vec![1, 0], io::ErrorKind::UnexpectedEof),
+            (
+                "eof mid-payload",
+                vec![1, 0, 2, b'x'],
+                io::ErrorKind::UnexpectedEof,
+            ),
+            (
+                "invalid utf-8",
+                vec![0, 0, 1, 0xff],
+                io::ErrorKind::InvalidData,
+            ),
+        ];
+        for (name, bytes, expected) in cases {
+            assert_eq!(reply_error(bytes), *expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn reply_reader_accepts_fragmented_payload() {
+        let mut reader = FragmentedReader {
+            bytes: vec![1, 0, 5, b'h', b'e', b'l', b'l', b'o'],
+            pos: 0,
+            chunk: 1,
+        };
+        assert_eq!(
+            read_reply_from(&mut reader).unwrap(),
+            (true, Some("hello".into()))
+        );
     }
 }

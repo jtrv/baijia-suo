@@ -31,6 +31,8 @@ use crate::args::Args;
 use std::path::PathBuf;
 use std::time::Duration;
 
+const MAX_CYCLE_SECS: u64 = 365 * 24 * 60 * 60;
+
 /// Color represented as RGBA components (0.0 - 1.0).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
@@ -297,6 +299,13 @@ impl Config {
             indicator.color = Some(Color::from_hex(&c)?);
         }
 
+        let cycle_secs = args.cycle.or(file.cycle).unwrap_or(60).max(1);
+        if cycle_secs > MAX_CYCLE_SECS {
+            return Err(format!(
+                "animation cycle {cycle_secs}s exceeds maximum {MAX_CYCLE_SECS}s"
+            ));
+        }
+
         Ok(Config {
             // 0 = disabled.
             low_battery_percent: args
@@ -322,7 +331,7 @@ impl Config {
                     args.animation.clone()
                 }),
                 // At least 1 s, so cycling can't switch every frame.
-                cycle: Duration::from_secs(args.cycle.or(file.cycle).unwrap_or(60).max(1)),
+                cycle: Duration::from_secs(cycle_secs),
                 params: AnimConfig {
                     // 0 = uncapped, the original per-mode clocks.
                     max_fps: args.max_fps.or(file.max_fps).unwrap_or(0),
@@ -592,6 +601,12 @@ mod tests {
                 .cycle,
             Duration::from_secs(1)
         );
+    }
+
+    #[test]
+    fn cycle_above_maximum_is_rejected() {
+        let err = from_cli(&["--cycle", &(MAX_CYCLE_SECS + 1).to_string()]).unwrap_err();
+        assert!(err.contains("exceeds maximum"), "unexpected error: {err}");
     }
 
     #[test]

@@ -13,7 +13,15 @@ use crate::secure::SecureBuffer;
 use libc::pid_t;
 use std::os::unix::io::RawFd;
 use std::sync::mpsc;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 use zeroize::Zeroize;
+
+// PAM modules can contact remote services; fail this attempt rather than leave
+// the locked UI unresponsive forever.
+const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
+const SHUTDOWN_GRACE: Duration = Duration::from_millis(100);
+const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// The outcome of one verification: whether it succeeded, plus any message the
 /// backend surfaced (e.g. a PAM faillock lockout notice) to relay for display.
@@ -40,6 +48,10 @@ pub struct ForkedVerifier {
     read_fd: RawFd,
     write_fd: RawFd,
     pending: Option<mpsc::Receiver<Result<AuthReply, VerifierError>>>,
+    worker: Option<JoinHandle<()>>,
+    deadline: Option<Instant>,
+    spec: VerifierSpec,
+    username: String,
 }
 
 impl ForkedVerifier {
@@ -88,6 +100,10 @@ impl ForkedVerifier {
                     read_fd: parent_read_fd,
                     write_fd: parent_write_fd,
                     pending: None,
+                    worker: None,
+                    deadline: None,
+                    spec,
+                    username,
                 })
             }
             _ => Err(VerifierError::ForkFailed),
@@ -100,14 +116,33 @@ impl ForkedVerifier {
     pub fn start(&mut self, password: SecureBuffer) {
         let (tx, rx) = mpsc::channel();
         self.pending = Some(rx);
-        let write_fd = self.write_fd;
-        let read_fd = self.read_fd;
-        std::thread::spawn(move || {
+        self.deadline = Some(
+            Instant::now()
+                .checked_add(ATTEMPT_TIMEOUT)
+                .unwrap_or_else(Instant::now),
+        );
+        let write_fd = unsafe { libc::dup(self.write_fd) };
+        let read_fd = unsafe { libc::dup(self.read_fd) };
+        if write_fd < 0 || read_fd < 0 {
+            if write_fd >= 0 {
+                unsafe { libc::close(write_fd) };
+            }
+            if read_fd >= 0 {
+                unsafe { libc::close(read_fd) };
+            }
+            let _ = tx.send(Err(VerifierError::IoError(std::io::Error::last_os_error())));
+            return;
+        }
+        self.worker = Some(std::thread::spawn(move || {
             let result = ipc::write_request(write_fd, password)
                 .and_then(|_| ipc::read_reply(read_fd))
                 .map_err(VerifierError::from);
+            unsafe {
+                libc::close(write_fd);
+                libc::close(read_fd);
+            }
             let _ = tx.send(result);
-        });
+        }));
     }
 
     /// Non-blocking check for the attempt started with `start`. Returns
@@ -117,35 +152,139 @@ impl ForkedVerifier {
         match rx.try_recv() {
             Ok(result) => {
                 self.pending = None;
+                self.deadline = None;
+                self.join_worker();
                 Some(result)
             }
             Err(mpsc::TryRecvError::Empty) => None,
             Err(mpsc::TryRecvError::Disconnected) => {
                 self.pending = None;
+                self.deadline = None;
+                self.join_worker();
                 Some(Err(VerifierError::IoError(std::io::Error::other(
                     "verifier thread died",
                 ))))
             }
         }
+        .or_else(|| {
+            if self
+                .deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+            {
+                self.pending = None;
+                self.deadline = None;
+                Some(self.restart().and(Err(VerifierError::TimedOut)))
+            } else {
+                None
+            }
+        })
     }
 
     /// Verify `password` synchronously on the calling thread. For one-shot
     /// callers (e.g. `--auth-test`) that don't need to keep an event loop
     /// responsive while waiting.
     pub fn verify_blocking(&mut self, password: SecureBuffer) -> Result<AuthReply, VerifierError> {
-        ipc::write_request(self.write_fd, password)?;
-        Ok(ipc::read_reply(self.read_fd)?)
+        self.start(password);
+        loop {
+            if let Some(result) = self.poll() {
+                return result;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn join_worker(&mut self) {
+        if let Some(worker) = self.worker.take() {
+            // The child has either replied, or was killed before this join.
+            // In the latter case its pipe closure wakes the worker's I/O.
+            let _ = worker.join();
+        }
+    }
+
+    fn close_parent_fds(&mut self) {
+        unsafe {
+            if self.read_fd >= 0 {
+                libc::close(self.read_fd);
+                self.read_fd = -1;
+            }
+            if self.write_fd >= 0 {
+                libc::close(self.write_fd);
+                self.write_fd = -1;
+            }
+        }
+    }
+
+    fn wait_for_child(pid: pid_t, grace: Duration) -> bool {
+        let deadline = Instant::now()
+            .checked_add(grace)
+            .unwrap_or_else(Instant::now);
+        let mut status: libc::c_int = 0;
+        loop {
+            let result = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
+            if result == pid
+                || (result < 0
+                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ECHILD))
+            {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(WAIT_POLL_INTERVAL);
+        }
+    }
+
+    fn reap_killed_child(pid: pid_t) {
+        let mut status: libc::c_int = 0;
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+            libc::waitpid(pid, &mut status, 0);
+        }
     }
 
     fn shutdown(&mut self) {
-        unsafe {
-            libc::close(self.read_fd);
-            libc::close(self.write_fd);
-        }
+        self.pending = None;
+        self.deadline = None;
         if let Some(pid) = self.pid.take() {
-            let mut status: libc::c_int = 0;
-            unsafe { libc::waitpid(pid, &mut status, 0) };
+            if self.worker.is_some() {
+                // An active worker owns duplicated fds, so closing the parent's
+                // ends alone cannot deliver EOF to the child.
+                Self::reap_killed_child(pid);
+                self.join_worker();
+                self.close_parent_fds();
+            } else {
+                self.close_parent_fds();
+                if !Self::wait_for_child(pid, SHUTDOWN_GRACE) {
+                    Self::reap_killed_child(pid);
+                }
+            }
+        } else {
+            self.join_worker();
+            self.close_parent_fds();
         }
+    }
+
+    fn restart(&mut self) -> Result<(), VerifierError> {
+        self.pending = None;
+        self.deadline = None;
+        if let Some(pid) = self.pid.take() {
+            // Kill first: it closes the peer pipe ends and therefore makes the
+            // worker's blocking I/O finish before we join it.
+            Self::reap_killed_child(pid);
+        }
+        self.join_worker();
+        self.close_parent_fds();
+
+        // fork() is safe here only because every worker thread was joined
+        // above. Do not move this spawn before that synchronization point.
+        debug_assert!(self.worker.is_none());
+        let mut replacement = Self::spawn(self.spec, self.username.clone())?;
+        self.pid = replacement.pid.take();
+        self.read_fd = replacement.read_fd;
+        replacement.read_fd = -1;
+        self.write_fd = replacement.write_fd;
+        replacement.write_fd = -1;
+        Ok(())
     }
 }
 
@@ -157,7 +296,8 @@ impl Drop for ForkedVerifier {
 
 fn make_pipe() -> Result<(RawFd, RawFd), VerifierError> {
     let mut fds = [0 as RawFd, 0 as RawFd];
-    let ret = unsafe { libc::pipe(fds.as_mut_ptr()) };
+    // PAM modules may execute helpers; neither end may leak into them.
+    let ret = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) };
     if ret != 0 {
         return Err(VerifierError::IoError(std::io::Error::last_os_error()));
     }
@@ -243,6 +383,7 @@ pub enum VerifierError {
     SetupRefused(String),
     ForkFailed,
     IoError(std::io::Error),
+    TimedOut,
 }
 
 impl std::fmt::Display for VerifierError {
@@ -251,6 +392,7 @@ impl std::fmt::Display for VerifierError {
             VerifierError::SetupRefused(s) => write!(f, "setup refused: {}", s),
             VerifierError::ForkFailed => write!(f, "fork failed"),
             VerifierError::IoError(s) => write!(f, "I/O error: {}", s),
+            VerifierError::TimedOut => write!(f, "authentication timed out"),
         }
     }
 }
@@ -271,7 +413,7 @@ mod tests {
     fn create_pipe() -> (RawFd, RawFd) {
         let mut fds = [0 as RawFd, 0 as RawFd];
         unsafe {
-            libc::pipe(fds.as_mut_ptr());
+            libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC);
         }
         (fds[0], fds[1])
     }

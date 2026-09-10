@@ -33,6 +33,8 @@ const PAM_SUCCESS: libc::c_int = 0;
 const PAM_AUTH_ERR: libc::c_int = 4;
 /// `pam_setcred` flag: refresh existing credentials without re-establishing.
 const PAM_REFRESH_CRED: libc::c_int = 0x0010;
+/// Bound retained PAM conversation text to the IPC payload limit.
+const MAX_PAM_MESSAGE_BYTES: usize = 4096;
 
 /// PAM message structure matching C struct.
 #[repr(C)]
@@ -69,6 +71,7 @@ struct PamConvState {
     /// Informational/error messages PAM emitted during the conversation
     /// (e.g. a faillock lockout notice), collected to relay to the parent.
     messages: Vec<String>,
+    message_bytes: usize,
 }
 
 impl PamConvState {
@@ -83,6 +86,7 @@ impl PamConvState {
         PamConvState {
             password,
             messages: Vec::new(),
+            message_bytes: 0,
         }
     }
 
@@ -90,6 +94,27 @@ impl PamConvState {
     /// Returns None if already consumed or never set.
     fn take_password(&mut self) -> Option<CString> {
         self.password.take()
+    }
+
+    fn push_message(&mut self, message: &std::ffi::CStr) {
+        let separator = usize::from(!self.messages.is_empty());
+        let remaining = MAX_PAM_MESSAGE_BYTES
+            .saturating_sub(self.message_bytes)
+            .saturating_sub(separator);
+        if remaining == 0 {
+            return;
+        }
+        let mut text =
+            String::from_utf8_lossy(&message.to_bytes()[..message.to_bytes().len().min(remaining)])
+                .trim()
+                .to_string();
+        while text.len() > remaining {
+            text.pop();
+        }
+        if !text.is_empty() {
+            self.message_bytes += separator + text.len();
+            self.messages.push(text);
+        }
     }
 }
 
@@ -175,13 +200,7 @@ unsafe extern "C" fn pam_conv_callback(
                 // PAM_ERROR_MSG / PAM_TEXT_INFO — capture the text to relay,
                 // then acknowledge with an empty response.
                 if !message.msg.is_null() {
-                    let text = std::ffi::CStr::from_ptr(message.msg)
-                        .to_string_lossy()
-                        .trim()
-                        .to_string();
-                    if !text.is_empty() {
-                        state.messages.push(text);
-                    }
+                    state.push_message(std::ffi::CStr::from_ptr(message.msg));
                 }
                 reply.resp = ptr::null_mut();
                 reply.resp_retcode = 0;
@@ -286,5 +305,15 @@ mod tests {
     fn pam_conv_state_rejects_empty_and_nul() {
         assert!(PamConvState::new("").take_password().is_none());
         assert!(PamConvState::new("a\0b").take_password().is_none());
+    }
+
+    #[test]
+    fn pam_messages_stay_within_cumulative_budget() {
+        let mut state = PamConvState::new("secret");
+        let first = std::ffi::CString::new("x".repeat(MAX_PAM_MESSAGE_BYTES)).unwrap();
+        let second = std::ffi::CString::new("later").unwrap();
+        state.push_message(&first);
+        state.push_message(&second);
+        assert_eq!(state.messages.join(" ").len(), MAX_PAM_MESSAGE_BYTES);
     }
 }
