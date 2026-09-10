@@ -3,8 +3,11 @@
 //! Uses length-prefixed messages with proper EINTR handling for signal safety.
 
 use crate::secure::SecureBuffer;
-use std::io::{self, Read};
+use std::io;
+#[cfg(test)]
+use std::io::Read;
 use std::os::unix::io::RawFd;
+#[cfg(test)]
 use zeroize::Zeroize;
 
 /// Read exactly `len` bytes from the file descriptor, handling EINTR.
@@ -67,6 +70,7 @@ fn write_full(fd: RawFd, buf: &[u8]) -> io::Result<()> {
 ///
 /// Format: [4-byte length][password bytes]
 /// After sending, the password buffer is zeroized.
+#[cfg(test)]
 pub fn write_request(fd: RawFd, mut password: SecureBuffer) -> io::Result<()> {
     let len = password.len() as u32;
     let len_bytes = len.to_be_bytes();
@@ -135,14 +139,17 @@ pub fn write_reply(fd: RawFd, success: bool, message: Option<&str>) -> io::Resul
 
 /// Read an authentication reply from the IPC channel: the success flag and any
 /// PAM message the child relayed (`None` if empty).
+#[cfg(test)]
 pub fn read_reply(fd: RawFd) -> io::Result<(bool, Option<String>)> {
     read_reply_from(&mut FdReader { fd })
 }
 
+#[cfg(test)]
 struct FdReader {
     fd: RawFd,
 }
 
+#[cfg(test)]
 impl Read for FdReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
@@ -159,6 +166,7 @@ impl Read for FdReader {
     }
 }
 
+#[cfg(test)]
 fn read_reply_from(reader: &mut impl Read) -> io::Result<(bool, Option<String>)> {
     let mut byte = [0u8];
     reader.read_exact(&mut byte)?;

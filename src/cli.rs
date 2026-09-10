@@ -7,6 +7,7 @@ use crate::config::Config;
 use crate::secure::SecureBuffer;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
+use zeroize::Zeroizing;
 
 /// Minimal stderr logger: writes `[LEVEL] message` lines. Level is fixed at
 /// init (Warn, or Debug with --debug).
@@ -32,6 +33,8 @@ struct TermiosRestore {
     fd: libc::c_int,
     termios: libc::termios,
     sigint: libc::sigaction,
+    sigterm: libc::sigaction,
+    sigquit: libc::sigaction,
 }
 
 impl Drop for TermiosRestore {
@@ -41,11 +44,13 @@ impl Drop for TermiosRestore {
                 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
             {}
             libc::sigaction(libc::SIGINT, &self.sigint, std::ptr::null_mut());
+            libc::sigaction(libc::SIGTERM, &self.sigterm, std::ptr::null_mut());
+            libc::sigaction(libc::SIGQUIT, &self.sigquit, std::ptr::null_mut());
         }
     }
 }
 
-extern "C" fn sigint_noop(_: libc::c_int) {}
+extern "C" fn termination_noop(_: libc::c_int) {}
 
 /// Read from the controlling terminal so redirected stdin cannot provide a password.
 fn read_password() -> std::io::Result<SecureBuffer> {
@@ -60,19 +65,43 @@ fn read_password() -> std::io::Result<SecureBuffer> {
     }
     let original = unsafe { original.assume_init() };
     let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };
-    sa.sa_sigaction = sigint_noop as *const () as libc::sighandler_t;
+    sa.sa_sigaction = termination_noop as *const () as libc::sighandler_t;
     // Deliberately no SA_RESTART: ^C must make the read fail with EINTR so
     // the guard below restores echo instead of the process dying with it off.
     sa.sa_flags = 0;
     unsafe { libc::sigemptyset(&mut sa.sa_mask) };
-    let mut prev_sigint = std::mem::MaybeUninit::<libc::sigaction>::uninit();
-    if unsafe { libc::sigaction(libc::SIGINT, &sa, prev_sigint.as_mut_ptr()) } != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
+    let install_signal = |signal| {
+        let mut previous = std::mem::MaybeUninit::<libc::sigaction>::uninit();
+        if unsafe { libc::sigaction(signal, &sa, previous.as_mut_ptr()) } != 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(unsafe { previous.assume_init() })
+        }
+    };
+    let prev_sigint = install_signal(libc::SIGINT)?;
+    let prev_sigterm = match install_signal(libc::SIGTERM) {
+        Ok(previous) => previous,
+        Err(error) => {
+            unsafe { libc::sigaction(libc::SIGINT, &prev_sigint, std::ptr::null_mut()) };
+            return Err(error);
+        }
+    };
+    let prev_sigquit = match install_signal(libc::SIGQUIT) {
+        Ok(previous) => previous,
+        Err(error) => {
+            unsafe {
+                libc::sigaction(libc::SIGINT, &prev_sigint, std::ptr::null_mut());
+                libc::sigaction(libc::SIGTERM, &prev_sigterm, std::ptr::null_mut());
+            }
+            return Err(error);
+        }
+    };
     let _restore = TermiosRestore {
         fd,
         termios: original,
-        sigint: unsafe { prev_sigint.assume_init() },
+        sigint: prev_sigint,
+        sigterm: prev_sigterm,
+        sigquit: prev_sigquit,
     };
     let mut no_echo = original;
     no_echo.c_lflag &= !libc::ECHO;
@@ -81,12 +110,12 @@ fn read_password() -> std::io::Result<SecureBuffer> {
     }
     let mut bytes =
         SecureBuffer::new(256).map_err(|error| std::io::Error::other(error.to_string()))?;
-    let mut byte = [0_u8; 1];
+    let mut byte = Zeroizing::new([0_u8; 1]);
     loop {
-        match tty.read(&mut byte)? {
+        match tty.read(&mut byte[..])? {
             0 => break,
             _ if byte[0] == b'\n' => break,
-            _ => bytes.try_push(&byte).map_err(|_| {
+            _ => bytes.try_push(&byte[..]).map_err(|_| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "password exceeds 256 bytes",
@@ -171,8 +200,7 @@ pub fn run() {
     }
 
     if args.auth_test {
-        run_auth_test(&args);
-        return;
+        std::process::exit(run_auth_test(&args));
     }
 
     let cfg = match Config::from_args(&args) {
@@ -224,7 +252,7 @@ pub fn run() {
 }
 
 /// Run authentication test mode.
-fn run_auth_test(args: &Args) {
+fn run_auth_test(args: &Args) -> i32 {
     println!("=== baijia-suo Authentication Test ===\n");
 
     use crate::auth::AuthBackendKind;
@@ -239,7 +267,7 @@ fn run_auth_test(args: &Args) {
         Some(u) => u,
         None => {
             eprintln!("Error: could not determine username (try --username)");
-            std::process::exit(1);
+            return 1;
         }
     };
 
@@ -256,7 +284,7 @@ fn run_auth_test(args: &Args) {
         Ok(password) => password,
         Err(e) => {
             eprintln!("Failed to read password: {e}");
-            std::process::exit(1);
+            return 1;
         }
     };
 
@@ -264,7 +292,7 @@ fn run_auth_test(args: &Args) {
         Ok(buf) => buf,
         Err(e) => {
             eprintln!("Failed to create password buffer: {}", e);
-            std::process::exit(1);
+            return 1;
         }
     };
 
@@ -272,16 +300,30 @@ fn run_auth_test(args: &Args) {
         if password_buf.append_char(c as u32).is_err() {
             eprintln!("Password too long");
             password_buf.clear();
-            std::process::exit(1);
+            return 1;
         }
     }
+
+    let mut secure_pw = match crate::secure::SecureBuffer::new(256) {
+        Ok(buf) => buf,
+        Err(e) => {
+            eprintln!("Failed to create secure buffer: {}", e);
+            password_buf.clear();
+            return 1;
+        }
+    };
+
+    let _ = secure_pw.try_push(password_buf.as_bytes());
+    password_buf.clear();
+    drop(password_buf);
+    drop(password_input);
 
     let mut verifier = match crate::auth::create_verifier(backend_kind, &username) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("Failed to initialize authentication verifier:");
             eprintln!("  {}", e);
-            std::process::exit(1);
+            return 1;
         }
     };
 
@@ -289,34 +331,22 @@ fn run_auth_test(args: &Args) {
 
     println!("\nTesting authentication...");
 
-    let mut secure_pw = match crate::secure::SecureBuffer::new(256) {
-        Ok(buf) => buf,
-        Err(e) => {
-            eprintln!("Failed to create secure buffer: {}", e);
-            password_buf.clear();
-            std::process::exit(1);
-        }
-    };
-
-    let _ = secure_pw.try_push(password_buf.as_bytes());
-    password_buf.clear();
-
     // Authenticate
     match verifier.verify_blocking(secure_pw) {
         Ok((true, _)) => {
             println!("\n✓ Authentication SUCCESSFUL");
-            std::process::exit(0);
+            0
         }
         Ok((false, message)) => {
             println!("\n✗ Authentication FAILED");
             if let Some(msg) = message {
                 println!("  PAM: {msg}");
             }
-            std::process::exit(1);
+            1
         }
         Err(e) => {
             eprintln!("\n✗ Authentication error: {}", e);
-            std::process::exit(1);
+            1
         }
     }
 }

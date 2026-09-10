@@ -11,8 +11,9 @@
 use crate::auth::ipc;
 use crate::secure::SecureBuffer;
 use libc::pid_t;
-use std::os::unix::io::RawFd;
-use std::sync::mpsc;
+use std::os::fd::{FromRawFd, IntoRawFd, OwnedFd, RawFd};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use zeroize::Zeroize;
@@ -22,6 +23,7 @@ use zeroize::Zeroize;
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
 const SHUTDOWN_GRACE: Duration = Duration::from_millis(100);
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const IO_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// The outcome of one verification: whether it succeeded, plus any message the
 /// backend surfaced (e.g. a PAM faillock lockout notice) to relay for display.
@@ -49,6 +51,7 @@ pub struct ForkedVerifier {
     write_fd: RawFd,
     pending: Option<mpsc::Receiver<Result<AuthReply, VerifierError>>>,
     worker: Option<JoinHandle<()>>,
+    cancellation: Option<Arc<AtomicBool>>,
     deadline: Option<Instant>,
     spec: VerifierSpec,
     username: String,
@@ -73,11 +76,11 @@ impl ForkedVerifier {
         let (child_read_fd, parent_write_fd) = make_pipe()?;
         let (parent_read_fd, child_write_fd) = make_pipe()?;
 
-        let pid = unsafe { libc::fork() };
+        let pid = fork_child();
         match pid {
             0 => unsafe {
-                libc::close(parent_read_fd);
-                libc::close(parent_write_fd);
+                drop(parent_read_fd);
+                drop(parent_write_fd);
                 // Pin the whole child in RAM: PAM and libc make heap copies
                 // of the password we can't individually mlock. The child's
                 // footprint is a few MB, so MCL_FUTURE is safe here (unlike
@@ -88,19 +91,23 @@ impl ForkedVerifier {
                 if let Some(f) = spec.on_child_start {
                     f();
                 }
-                run_child_loop(spec, &username, child_read_fd, child_write_fd);
+                run_child_loop(
+                    spec,
+                    &username,
+                    child_read_fd.into_raw_fd(),
+                    child_write_fd.into_raw_fd(),
+                );
             },
             pid if pid > 0 => {
-                unsafe {
-                    libc::close(child_read_fd);
-                    libc::close(child_write_fd);
-                }
+                drop(child_read_fd);
+                drop(child_write_fd);
                 Ok(ForkedVerifier {
                     pid: Some(pid),
-                    read_fd: parent_read_fd,
-                    write_fd: parent_write_fd,
+                    read_fd: parent_read_fd.into_raw_fd(),
+                    write_fd: parent_write_fd.into_raw_fd(),
                     pending: None,
                     worker: None,
+                    cancellation: None,
                     deadline: None,
                     spec,
                     username,
@@ -121,6 +128,12 @@ impl ForkedVerifier {
                 .checked_add(ATTEMPT_TIMEOUT)
                 .unwrap_or_else(Instant::now),
         );
+        if self.pid.is_none() {
+            if let Err(error) = self.replace_helper() {
+                let _ = tx.send(Err(error));
+                return;
+            }
+        }
         let write_fd = unsafe { libc::dup(self.write_fd) };
         let read_fd = unsafe { libc::dup(self.read_fd) };
         if write_fd < 0 || read_fd < 0 {
@@ -133,9 +146,20 @@ impl ForkedVerifier {
             let _ = tx.send(Err(VerifierError::IoError(std::io::Error::last_os_error())));
             return;
         }
+        if let Err(error) = set_nonblocking(write_fd).and_then(|_| set_nonblocking(read_fd)) {
+            unsafe {
+                libc::close(write_fd);
+                libc::close(read_fd);
+            }
+            let _ = tx.send(Err(error.into()));
+            return;
+        }
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let worker_cancellation = Arc::clone(&cancellation);
+        self.cancellation = Some(cancellation);
         self.worker = Some(std::thread::spawn(move || {
-            let result = ipc::write_request(write_fd, password)
-                .and_then(|_| ipc::read_reply(read_fd))
+            let result = write_request_cancellable(write_fd, password, &worker_cancellation)
+                .and_then(|_| read_reply_cancellable(read_fd, &worker_cancellation))
                 .map_err(VerifierError::from);
             unsafe {
                 libc::close(write_fd);
@@ -194,11 +218,13 @@ impl ForkedVerifier {
     }
 
     fn join_worker(&mut self) {
+        if let Some(cancellation) = &self.cancellation {
+            cancellation.store(true, Ordering::Release);
+        }
         if let Some(worker) = self.worker.take() {
-            // The child has either replied, or was killed before this join.
-            // In the latter case its pipe closure wakes the worker's I/O.
             let _ = worker.join();
         }
+        self.cancellation = None;
     }
 
     fn close_parent_fds(&mut self) {
@@ -227,6 +253,9 @@ impl ForkedVerifier {
             {
                 return true;
             }
+            if result < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
             if Instant::now() >= deadline {
                 return false;
             }
@@ -235,11 +264,10 @@ impl ForkedVerifier {
     }
 
     fn reap_killed_child(pid: pid_t) {
-        let mut status: libc::c_int = 0;
         unsafe {
             libc::kill(pid, libc::SIGKILL);
-            libc::waitpid(pid, &mut status, 0);
         }
+        let _ = Self::wait_for_child(pid, SHUTDOWN_GRACE);
     }
 
     fn shutdown(&mut self) {
@@ -247,8 +275,6 @@ impl ForkedVerifier {
         self.deadline = None;
         if let Some(pid) = self.pid.take() {
             if self.worker.is_some() {
-                // An active worker owns duplicated fds, so closing the parent's
-                // ends alone cannot deliver EOF to the child.
                 Self::reap_killed_child(pid);
                 self.join_worker();
                 self.close_parent_fds();
@@ -268,15 +294,17 @@ impl ForkedVerifier {
         self.pending = None;
         self.deadline = None;
         if let Some(pid) = self.pid.take() {
-            // Kill first: it closes the peer pipe ends and therefore makes the
-            // worker's blocking I/O finish before we join it.
             Self::reap_killed_child(pid);
         }
         self.join_worker();
         self.close_parent_fds();
 
-        // fork() is safe here only because every worker thread was joined
-        // above. Do not move this spawn before that synchronization point.
+        self.replace_helper()
+    }
+
+    fn replace_helper(&mut self) -> Result<(), VerifierError> {
+        // A PAM grandchild can hold the pipe open, so EOF is not a reliable wakeup.
+        // Keep fork single-threaded: a worker must always be joined before re-forking.
         debug_assert!(self.worker.is_none());
         let mut replacement = Self::spawn(self.spec, self.username.clone())?;
         self.pid = replacement.pid.take();
@@ -288,20 +316,199 @@ impl ForkedVerifier {
     }
 }
 
+#[cfg(not(test))]
+fn fork_child() -> pid_t {
+    unsafe { libc::fork() }
+}
+
+#[cfg(test)]
+static FORCE_FORK_FAILURE: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+fn fork_child() -> pid_t {
+    if FORCE_FORK_FAILURE.load(Ordering::Acquire) {
+        -1
+    } else {
+        unsafe { libc::fork() }
+    }
+}
+
 impl Drop for ForkedVerifier {
     fn drop(&mut self) {
         self.shutdown();
     }
 }
 
-fn make_pipe() -> Result<(RawFd, RawFd), VerifierError> {
+fn make_pipe() -> Result<(OwnedFd, OwnedFd), VerifierError> {
     let mut fds = [0 as RawFd, 0 as RawFd];
     // PAM modules may execute helpers; neither end may leak into them.
     let ret = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) };
     if ret != 0 {
         return Err(VerifierError::IoError(std::io::Error::last_os_error()));
     }
-    Ok((fds[0], fds[1]))
+    Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
+}
+
+fn set_nonblocking(fd: RawFd) -> std::io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn poll_cancellable(
+    fd: RawFd,
+    events: libc::c_short,
+    cancellation: &AtomicBool,
+) -> std::io::Result<()> {
+    loop {
+        if cancellation.load(Ordering::Acquire) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "authentication cancelled",
+            ));
+        }
+        let mut pollfd = libc::pollfd {
+            fd,
+            events,
+            revents: 0,
+        };
+        let timeout = IO_POLL_INTERVAL
+            .as_millis()
+            .try_into()
+            .unwrap_or(libc::c_int::MAX);
+        let result = unsafe { libc::poll(&mut pollfd, 1, timeout) };
+        if result > 0 {
+            return Ok(());
+        }
+        if result == 0 {
+            continue;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+fn write_full_cancellable(
+    fd: RawFd,
+    bytes: &[u8],
+    cancellation: &AtomicBool,
+) -> std::io::Result<()> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        poll_cancellable(fd, libc::POLLOUT, cancellation)?;
+        let result = unsafe {
+            libc::write(
+                fd,
+                bytes[offset..].as_ptr() as *const libc::c_void,
+                bytes.len() - offset,
+            )
+        };
+        match result {
+            n if n > 0 => offset += n as usize,
+            0 => return Err(std::io::Error::from(std::io::ErrorKind::WriteZero)),
+            _ => {
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::WouldBlock
+                    && error.kind() != std::io::ErrorKind::Interrupted
+                {
+                    return Err(error);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_full_cancellable(
+    fd: RawFd,
+    bytes: &mut [u8],
+    cancellation: &AtomicBool,
+) -> std::io::Result<()> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        poll_cancellable(fd, libc::POLLIN, cancellation)?;
+        let result = unsafe {
+            libc::read(
+                fd,
+                bytes[offset..].as_mut_ptr() as *mut libc::c_void,
+                bytes.len() - offset,
+            )
+        };
+        match result {
+            n if n > 0 => offset += n as usize,
+            0 => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "unexpected EOF",
+                ))
+            }
+            _ => {
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::WouldBlock
+                    && error.kind() != std::io::ErrorKind::Interrupted
+                {
+                    return Err(error);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_request_cancellable(
+    fd: RawFd,
+    mut password: SecureBuffer,
+    cancellation: &AtomicBool,
+) -> std::io::Result<()> {
+    let len = (password.len() as u32).to_be_bytes();
+    let result = write_full_cancellable(fd, &len, cancellation)
+        .and_then(|_| write_full_cancellable(fd, password.as_slice(), cancellation));
+    password.zeroize();
+    result
+}
+
+fn read_reply_cancellable(fd: RawFd, cancellation: &AtomicBool) -> std::io::Result<AuthReply> {
+    let mut status = [0_u8; 1];
+    read_full_cancellable(fd, &mut status, cancellation)?;
+    let success = match status[0] {
+        0 => false,
+        1 => true,
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid reply status",
+            ))
+        }
+    };
+    let mut length = [0_u8; 2];
+    read_full_cancellable(fd, &mut length, cancellation)?;
+    let length = u16::from_be_bytes(length) as usize;
+    if length > 4096 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "reply message too long",
+        ));
+    }
+    if length == 0 {
+        return Ok((success, None));
+    }
+    let mut message = vec![0; length];
+    read_full_cancellable(fd, &mut message, cancellation)?;
+    String::from_utf8(message)
+        .map(|message| (success, Some(message)))
+        .map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "reply message is not UTF-8",
+            )
+        })
 }
 
 /// Result of one child-loop iteration.
@@ -489,5 +696,71 @@ mod tests {
             libc::close(req_write);
             libc::close(reply_read);
         }
+    }
+
+    fn unavailable_verifier(spec: VerifierSpec) -> ForkedVerifier {
+        ForkedVerifier {
+            pid: None,
+            read_fd: -1,
+            write_fd: -1,
+            pending: None,
+            worker: None,
+            cancellation: None,
+            deadline: None,
+            spec,
+            username: "tester".into(),
+        }
+    }
+
+    fn password(bytes: &[u8]) -> SecureBuffer {
+        let mut password = SecureBuffer::new(16).unwrap();
+        password.try_push(bytes).unwrap();
+        password
+    }
+
+    #[test]
+    fn unavailable_helper_retries_on_later_attempt() {
+        let spec = VerifierSpec {
+            on_child_start: None,
+            verify: |_, password| (password == "hunter2", None),
+        };
+        let mut verifier = unavailable_verifier(spec);
+        FORCE_FORK_FAILURE.store(true, Ordering::Release);
+        verifier.start(password(b"hunter2"));
+        assert!(matches!(
+            verifier.poll(),
+            Some(Err(VerifierError::ForkFailed))
+        ));
+        FORCE_FORK_FAILURE.store(false, Ordering::Release);
+        assert!(verifier.verify_blocking(password(b"hunter2")).unwrap().0);
+    }
+
+    #[test]
+    fn cancellation_does_not_depend_on_reply_pipe_eof() {
+        let (read_fd, write_fd) = create_pipe();
+        let holder = unsafe { libc::fork() };
+        if holder == 0 {
+            unsafe {
+                libc::close(read_fd);
+                libc::pause();
+                libc::_exit(0);
+            }
+        }
+        assert!(holder > 0);
+        unsafe { libc::close(write_fd) };
+        set_nonblocking(read_fd).unwrap();
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let worker_cancellation = Arc::clone(&cancellation);
+        let worker = thread::spawn(move || read_reply_cancellable(read_fd, &worker_cancellation));
+        std::thread::sleep(IO_POLL_INTERVAL * 2);
+        let started = Instant::now();
+        cancellation.store(true, Ordering::Release);
+        assert!(worker.join().unwrap().is_err());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        unsafe { libc::kill(holder, libc::SIGKILL) };
+        assert!(ForkedVerifier::wait_for_child(
+            holder,
+            Duration::from_secs(1)
+        ));
     }
 }
