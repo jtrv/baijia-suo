@@ -54,3 +54,6 @@ AGENTS.md
 /GEIGER_AUDIT.md
 /reports/
 /graphify-out/
+
+# Session handoffs
+/.handoffs/
