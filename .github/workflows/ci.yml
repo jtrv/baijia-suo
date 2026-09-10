@@ -24,3 +24,15 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo nextest run --release
+      - name: Verify generated glyph table is byte-for-byte deterministic
+        run: |
+          tmp=$(mktemp)
+          trap 'rm -f "$tmp"' EXIT
+          cargo run --manifest-path scripts/gen-glyphs/Cargo.toml --quiet -- "$tmp"
+          cmp -- "$tmp" src/render/indicator/glyphs.rs
+      - name: Check dependency policy for application and generator lockfiles
+        run: |
+          cargo deny check
+          cargo deny --manifest-path scripts/gen-glyphs/Cargo.toml check
+      - name: Build Nix package from the committed flake lockfile
+        run: nix build --no-link .#baijia-suo

@@ -100,6 +100,10 @@ fn emit_glyph(out: &mut String, name: &str, advance: i16, commands: &[Cmd]) {
 
 fn main() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output_path = std::env::args_os()
+        .nth(1)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| root.join("src/render/indicator/glyphs.rs"));
     let font_bytes = std::fs::read(root.join("fonts/LiberationSans-Regular.ttf")).unwrap();
     let font = FontRef::new(&font_bytes).unwrap();
     let units_per_em = font.metrics(Size::unscaled(), LocationRef::default()).units_per_em * 2;
@@ -151,6 +155,6 @@ fn main() {
         writeln!(output, "    ('\\u{{{:x}}}', GLYPH_{index}),", *c as u32).unwrap();
     }
     output.push_str("];\n\npub fn lookup(c: char) -> Option<&'static Glyph> {\n    GLYPHS\n        .binary_search_by_key(&c, |(character, _)| *character)\n        .ok()\n        .map(|index| &GLYPHS[index].1)\n}\n");
-    std::fs::write(root.join("src/render/indicator/glyphs.rs"), output).unwrap();
+    std::fs::write(output_path, output).unwrap();
     eprintln!("glyphs: {}, largest absolute coordinate: {largest_coordinate}, cubic segments: {cubic_segments}", glyphs.len());
 }
