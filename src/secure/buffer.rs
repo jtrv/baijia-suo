@@ -76,11 +76,7 @@ impl SecureBuffer {
 
     /// Set the buffer contents to all zeros and reset the length.
     pub fn clear(&mut self) {
-        // Zero the used portion
-        // SAFETY: ptr is valid and len <= capacity
-        unsafe {
-            ptr::write_bytes(self.ptr.as_ptr(), 0, self.len);
-        }
+        self.wipe_range(0, self.len);
         self.len = 0;
     }
 
@@ -89,11 +85,7 @@ impl SecureBuffer {
         if new_len >= self.len {
             return;
         }
-        let removed = self.len - new_len;
-        // SAFETY: ptr is valid, new_len < len <= capacity
-        unsafe {
-            ptr::write_bytes(self.ptr.as_ptr().add(new_len), 0, removed);
-        }
+        self.wipe_range(new_len, self.len - new_len);
         self.len = new_len;
     }
 
@@ -112,7 +104,7 @@ impl SecureBuffer {
         self.logical_capacity
     }
 
-    /// Return a mutable pointer to the buffer data.
+    #[cfg(test)]
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
         self.ptr.as_ptr()
     }
@@ -162,6 +154,16 @@ impl SecureBuffer {
             self.mlocked = false;
         }
     }
+
+    fn wipe_range(&mut self, start: usize, len: usize) {
+        // Volatile writes prevent the compiler from eliding sensitive-data erasure.
+        unsafe {
+            let ptr = self.ptr.as_ptr().add(start);
+            for i in 0..len {
+                ptr::write_volatile(ptr.add(i), 0);
+            }
+        }
+    }
 }
 
 impl Drop for SecureBuffer {
@@ -178,15 +180,7 @@ impl Drop for SecureBuffer {
 
 impl Zeroize for SecureBuffer {
     fn zeroize(&mut self) {
-        // Zero the full allocated capacity, not just len, to clear any stale data
-        // SAFETY: ptr is valid for allocated_capacity bytes
-        unsafe {
-            // Use write_volatile to prevent the compiler from eliding the zeroing
-            let ptr = self.ptr.as_ptr();
-            for i in 0..self.allocated_capacity {
-                ptr::write_volatile(ptr.add(i), 0);
-            }
-        }
+        self.wipe_range(0, self.allocated_capacity);
         self.len = 0;
     }
 }

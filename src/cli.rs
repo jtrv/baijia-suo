@@ -4,6 +4,7 @@
 use crate::app::App;
 use crate::args::Args;
 use crate::config::Config;
+use crate::secure::SecureBuffer;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 
@@ -47,7 +48,7 @@ impl Drop for TermiosRestore {
 extern "C" fn sigint_noop(_: libc::c_int) {}
 
 /// Read from the controlling terminal so redirected stdin cannot provide a password.
-fn read_password() -> std::io::Result<zeroize::Zeroizing<String>> {
+fn read_password() -> std::io::Result<SecureBuffer> {
     let mut tty = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -78,24 +79,31 @@ fn read_password() -> std::io::Result<zeroize::Zeroizing<String>> {
     if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &no_echo) } != 0 {
         return Err(std::io::Error::last_os_error());
     }
-    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    let mut bytes =
+        SecureBuffer::new(256).map_err(|error| std::io::Error::other(error.to_string()))?;
     let mut byte = [0_u8; 1];
     loop {
         match tty.read(&mut byte)? {
             0 => break,
             _ if byte[0] == b'\n' => break,
-            _ => bytes.push(byte[0]),
+            _ => bytes.try_push(&byte).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "password exceeds 256 bytes",
+                )
+            })?,
         }
     }
-    if bytes.last() == Some(&b'\r') {
-        bytes.pop();
+    if bytes.as_slice().last() == Some(&b'\r') {
+        bytes.truncate(bytes.len() - 1);
     }
-    std::str::from_utf8(&bytes)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-    // UTF-8 was validated above; move the allocation directly into the wiped String.
-    Ok(zeroize::Zeroizing::new(unsafe {
-        String::from_utf8_unchecked(std::mem::take(&mut *bytes))
-    }))
+    bytes.as_str().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "password is not valid UTF-8",
+        )
+    })?;
+    Ok(bytes)
 }
 
 /// Process-wide hardening, done before anything touches a password.
@@ -260,7 +268,7 @@ fn run_auth_test(args: &Args) {
         }
     };
 
-    for c in password_input.chars() {
+    for c in password_input.as_str().unwrap_or_default().chars() {
         if password_buf.append_char(c as u32).is_err() {
             eprintln!("Password too long");
             password_buf.clear();

@@ -106,6 +106,14 @@ fn wipe_cstring(s: CString) {
     s.into_bytes().zeroize();
 }
 
+unsafe fn wipe_and_free_response(response: *mut libc::c_char) {
+    let len = libc::strlen(response);
+    for i in 0..=len {
+        ptr::write_volatile(response.add(i), 0);
+    }
+    libc::free(response as *mut libc::c_void);
+}
+
 /// PAM conversation callback.
 ///
 /// Called by PAM during authentication to obtain credentials.
@@ -142,8 +150,7 @@ unsafe extern "C" fn pam_conv_callback(
             1 => {
                 // PAM_PROMPT_ECHO_OFF — password prompt
                 if let Some(pw) = state.take_password() {
-                    // PAM takes ownership of the strdup'd copy and frees it
-                    // (well-behaved modules wipe it first); ours is wiped here.
+                    // PAM takes ownership of the strdup'd copy and frees it.
                     reply.resp = libc::strdup(pw.as_ptr());
                     reply.resp_retcode = 0;
                     wipe_cstring(pw);
@@ -152,7 +159,7 @@ unsafe extern "C" fn pam_conv_callback(
                     for j in 0..i {
                         let r = &mut *replies.add(j);
                         if !r.resp.is_null() {
-                            libc::free(r.resp as *mut libc::c_void);
+                            wipe_and_free_response(r.resp);
                         }
                     }
                     libc::free(replies as *mut libc::c_void);
@@ -183,7 +190,7 @@ unsafe extern "C" fn pam_conv_callback(
                 for j in 0..=i {
                     let r = &mut *replies.add(j);
                     if !r.resp.is_null() {
-                        libc::free(r.resp as *mut libc::c_void);
+                        wipe_and_free_response(r.resp);
                     }
                 }
                 libc::free(replies as *mut libc::c_void);

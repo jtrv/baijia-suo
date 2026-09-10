@@ -48,13 +48,6 @@ impl Password {
             }
         }
 
-        // Zero the removed bytes and truncate len
-        let removed = slice.len() - pos;
-        unsafe {
-            let ptr = self.buf.as_mut_ptr().add(pos);
-            std::ptr::write_bytes(ptr, 0, removed);
-        }
-        // We need to update the length — access via as_mut_slice and truncate
         self.buf.truncate(pos);
         true
     }
