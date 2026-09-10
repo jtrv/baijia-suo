@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
+#MISE description="Visual QA: cycle every animation in a nested niri"
 # Visual QA harness: run the locker inside a nested niri so you can eyeball it
-# without relocking your real session by hand.
+# without relocking your real session by hand. Every qa task goes through here,
+# so your real session is never locked. Build first (`mise run release`) — the
+# harness only builds when the binary is missing, so it always shows the last
+# build you made.
 #
 # Two shapes:
 #   rotate (default) — play every animation in turn, hands-off.
@@ -18,23 +22,27 @@
 #   - static mode: niri runs once, no rotator, no watchexec.
 #
 # Usage:
-#   scripts/visual-test.sh [-i SECONDS] [animation ...]
-#   scripts/visual-test.sh -s [-- LOCKER_ARG ...]
+#   mise run qa [-i SECONDS] [animation ...]
+#   mise run qa -- -s [-- LOCKER_ARG ...]
 #     -i SECONDS   seconds per animation (default 10, rotate mode only)
 #     -s           static: one session, no rotation — for interactive tests
 #     animation... explicit list to cycle (default: every registered mode)
 #     -- ARG...    extra args passed straight to baijia-suo
 #
 # Examples:
-#   scripts/visual-test.sh ico rain          # eyeball two modes in turn
-#   scripts/visual-test.sh -s -- -C scripts/qa/playlist.toml
-#   scripts/visual-test.sh -s -- --debug-timing -A petri
-#   scripts/visual-test.sh -s -- --indicator-mode ripple   # then type
+#   mise run qa ico rain      # eyeball two modes in turn
+#   mise run qa -- -s -- -C .config/mise/qa/playlist.toml
+#   mise run qa -- -s -- --debug-timing -A petri
+#   mise run qa -- -s -- --indicator-mode ripple   # then type
+#
+#   The qa-playlist / qa-capped / qa-timing / qa-indicator tasks are those
+#   invocations under their own names; extra args are appended, so
+#   `mise run qa-indicator ripple` picks the ripple style.
 #
 #   Ctrl-C stops everything and removes the generated config.
 set -euo pipefail
 
-repo="$(cd "$(dirname "$0")/.." && pwd)"
+repo="$MISE_PROJECT_ROOT"
 bin="$repo/target/release/baijia-suo"
 config="$repo/.visual-test.kdl"
 interval=10
@@ -44,7 +52,7 @@ while getopts "i:sh" opt; do
     case "$opt" in
         i) interval="$OPTARG" ;;
         s) static=1 ;;
-        h) sed -n '2,35p' "$0"; exit 0 ;;
+        h) awk 'NR>2 && /^#/ {print; next} NR>2 {exit}' "$0"; exit 0 ;;
         *) exit 2 ;;
     esac
 done

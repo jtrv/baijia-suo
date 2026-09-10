@@ -1,7 +1,8 @@
 #!/bin/sh
+#MISE description="Benchmark gate vs the local baseline (refuses above loadavg 1.0; BENCH_FORCE=1 overrides)"
 set -eu
 
-cd "$(dirname "$0")/.."
+cd "$MISE_PROJECT_ROOT"
 baseline=local
 criterion_dir=target/criterion
 
@@ -13,7 +14,7 @@ criterion_dir=target/criterion
 max_load=${BENCH_MAX_LOAD:-1.0}
 load=$(awk '{print $1}' /proc/loadavg)
 if [ -z "${BENCH_FORCE:-}" ] && [ "$(awk -v l="$load" -v m="$max_load" 'BEGIN{print (l>m)}')" = 1 ]; then
-    echo "bench-verdict: loadavg $load exceeds $max_load — refusing to measure." >&2
+    echo "bench: loadavg $load exceeds $max_load — refusing to measure." >&2
     echo "  Wait for the machine to settle, or re-run with BENCH_FORCE=1 to" >&2
     echo "  measure anyway (the verdict will be noise, not a result)." >&2
     exit 2

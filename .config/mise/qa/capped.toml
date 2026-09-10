@@ -7,7 +7,7 @@
 #   mise run qa-capped
 #
 # Compare against the same list uncapped:
-#   scripts/visual-test.sh binaryring starfish discrete
+#   mise run qa binaryring starfish discrete
 
 animation = [
   "binaryring",

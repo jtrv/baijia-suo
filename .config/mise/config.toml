@@ -17,10 +17,6 @@ run = "cargo check"
 description = "Run the test suite (all_modes_smoke is slow unoptimized)"
 run = "cargo nextest run --release"
 
-[tasks.bench]
-description = "Benchmark gate vs the local baseline (refuses above loadavg 1.0; BENCH_FORCE=1 overrides)"
-run = "scripts/bench-verdict.sh"
-
 [tasks.lint]
 description = "Clippy, no writes"
 run = "cargo clippy -- -D warnings"
@@ -28,6 +24,10 @@ run = "cargo clippy -- -D warnings"
 [tasks.format]
 description = "Format the codebase"
 run = "cargo fmt"
+
+[tasks.gen-glyphs]
+description = "Generate the indicator glyph table"
+run = "cargo run --release --manifest-path scripts/gen-glyphs/Cargo.toml"
 
 [tasks.clean]
 description = "Remove build output"
@@ -37,27 +37,23 @@ run = "cargo clean"
 description = "Build the man page"
 run = "mkdir -p target && scdoc < docs/baijia-suo.1.scd > target/baijia-suo.1"
 
-# Visual QA — every task runs the locker in a NESTED niri, so your real
-# session is never locked. Build first (`mise run release`); the harness only
-# builds when the binary is missing, so it always shows the last build.
-# Extra args are appended, e.g. `mise run qa ico rain` cycles just those two.
-
-[tasks.qa]
-description = "Visual QA: cycle every animation in a nested niri"
-run = "scripts/visual-test.sh"
+# Visual QA — thin named wrappers around the qa harness
+# (.config/mise/tasks/qa.sh), which explains the nested-niri setup these all
+# share. Build first (`mise run release`); extra args are appended, e.g.
+# `mise run qa-indicator ripple`.
 
 [tasks.qa-playlist]
-description = "Visual QA: multi-mode playlist handoff (scripts/qa/playlist.toml)"
-run = "scripts/visual-test.sh -s -- -C scripts/qa/playlist.toml"
+description = "Visual QA: multi-mode playlist handoff (.config/mise/qa/playlist.toml)"
+run = "mise run qa -- -s -- -C .config/mise/qa/playlist.toml"
 
 [tasks.qa-capped]
-description = "Visual QA: max_fps caps rendering, not speed (scripts/qa/capped.toml)"
-run = "scripts/visual-test.sh -s -- -C scripts/qa/capped.toml"
+description = "Visual QA: max_fps caps rendering, not speed (.config/mise/qa/capped.toml)"
+run = "mise run qa -- -s -- -C .config/mise/qa/capped.toml"
 
 [tasks.qa-timing]
 description = "Visual QA: per-frame advance vs present cost (--debug-timing is args-only, no config key)"
-run = "scripts/visual-test.sh -s -- --debug-timing -A petri"
+run = "mise run qa -- -s -- --debug-timing -A petri"
 
 [tasks.qa-indicator]
 description = "Visual QA: type at one indicator style, e.g. `mise run qa-indicator ripple`"
-run = "scripts/visual-test.sh -s -- --indicator-mode"
+run = "mise run qa -- -s -- --indicator-mode"
