@@ -1,5 +1,43 @@
 use crate::rng::RngExt;
 
+pub fn rgb_to_hsv(r: u16, g: u16, b: u16) -> (i32, f64, f64) {
+    let rr = r as f64 / 65535.0;
+    let gg = g as f64 / 65535.0;
+    let bb = b as f64 / 65535.0;
+    let (mut cmax, mut cmin, mut imax) = (rr, gg, 1);
+    if cmax < gg {
+        cmax = gg;
+        cmin = rr;
+        imax = 2;
+    }
+    if cmax < bb {
+        cmax = bb;
+        imax = 3;
+    }
+    if cmin > bb {
+        cmin = bb;
+    }
+    let cmm = cmax - cmin;
+    let v = cmax;
+    let (h, s) = if cmm == 0.0 {
+        (0.0, 0.0)
+    } else {
+        let s = cmm / cmax;
+        let mut h = match imax {
+            1 => (gg - bb) / cmm,
+            2 => 2.0 + (bb - rr) / cmm,
+            _ => 4.0 + (rr - gg) / cmm,
+        };
+        if h < 0.0 {
+            h += 6.0;
+        }
+        (h, s)
+    };
+    ((h * 60.0) as i32, s, v)
+}
+
+/* port of utils/colors.c make_color_ramp (color computation only) */
+#[allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 /// A simple ARGB color representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color {
@@ -209,6 +247,43 @@ pub fn rgb16(r: u16, g: u16, b: u16) -> Color {
 }
 
 /* ---- utils/colors.c ---- */
+
+/// utils/colors.c make_color_ramp: a linear HSV ramp of `total` colors.
+/// The moire and popsquares ports truncate the hue offset to an integer before
+/// adding it to `h1`, where [`make_color_ramp`] truncates the sum. On a
+/// descending ramp the two differ by one degree of hue, so they are not
+/// interchangeable; `ramps_are_not_interchangeable` pins that.
+#[allow(clippy::too_many_arguments)]
+pub fn make_color_ramp_stepped_hue(
+    h1: i32,
+    s1: f64,
+    v1: f64,
+    h2: i32,
+    s2: f64,
+    v2: f64,
+    total: usize,
+    closed: bool,
+) -> Vec<Color> {
+    let n = if closed { total / 2 + 1 } else { total };
+    let dh = (h2 - h1) as f64 / n as f64;
+    let ds = (s2 - s1) / n as f64;
+    let dv = (v2 - v1) / n as f64;
+    let mut out = vec![BLACK; total];
+    for (i, c) in out.iter_mut().enumerate().take(n.min(total)) {
+        let (r, g, b) = hsv_to_rgb(
+            h1 + (dh * i as f64) as i32,
+            s1 + ds * i as f64,
+            v1 + dv * i as f64,
+        );
+        *c = rgb16(r, g, b);
+    }
+    if closed {
+        for i in n..total {
+            out[i] = out[total - i];
+        }
+    }
+    out
+}
 
 /// utils/colors.c make_color_ramp: a linear HSV ramp of `total` colors.
 #[allow(clippy::too_many_arguments)]
@@ -627,5 +702,19 @@ pub fn draw_thick_line(
             err += dx;
             y0 += sy;
         }
+    }
+}
+
+#[cfg(test)]
+mod ramp_tests {
+    use super::*;
+
+    /// The two ramps look interchangeable and are not. Merging them silently
+    /// shifts moire and popsquares hues by a degree on descending ramps.
+    #[test]
+    fn ramps_are_not_interchangeable() {
+        let stepped = make_color_ramp_stepped_hue(180, 0.3, 0.7, 10, 0.9, 0.2, 3, false);
+        let summed = make_color_ramp(180, 0.3, 0.7, 10, 0.9, 0.2, 3, false);
+        assert_ne!(stepped, summed);
     }
 }

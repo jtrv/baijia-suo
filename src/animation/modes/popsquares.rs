@@ -11,7 +11,7 @@
  * Rust port of xscreensaver's popsquares.c for baijia-suo.
  */
 
-use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
+use crate::animation::primitives::{clear_buffer, put_pixel, make_color_ramp_stepped_hue, rgb_to_hsv, Color};
 use crate::animation::{AnimConfig, Animation, RenderPolicy};
 use crate::rng::RngExt;
 
@@ -25,73 +25,6 @@ const TWITCH: bool = false;
 const FG: (u16, u16, u16) = (0x0000, 0x0000, 0x8B8B); // #00008B
 const BG: (u16, u16, u16) = (0x0000, 0x0000, 0xFFFF); // #0000FF
 
-fn rgb_to_hsv(r: u16, g: u16, b: u16) -> (i32, f64, f64) {
-    let rr = r as f64 / 65535.0;
-    let gg = g as f64 / 65535.0;
-    let bb = b as f64 / 65535.0;
-    let (mut cmax, mut cmin, mut imax) = (rr, gg, 1);
-    if cmax < gg {
-        cmax = gg;
-        cmin = rr;
-        imax = 2;
-    }
-    if cmax < bb {
-        cmax = bb;
-        imax = 3;
-    }
-    if cmin > bb {
-        cmin = bb;
-    }
-    let cmm = cmax - cmin;
-    let v = cmax;
-    let (h, s) = if cmm == 0.0 {
-        (0.0, 0.0)
-    } else {
-        let s = cmm / cmax;
-        let mut h = match imax {
-            1 => (gg - bb) / cmm,
-            2 => 2.0 + (bb - rr) / cmm,
-            _ => 4.0 + (rr - gg) / cmm,
-        };
-        if h < 0.0 {
-            h += 6.0;
-        }
-        (h, s)
-    };
-    ((h * 60.0) as i32, s, v)
-}
-
-/* port of utils/colors.c make_color_ramp (color computation only) */
-fn make_color_ramp(
-    h1: i32,
-    s1: f64,
-    v1: f64,
-    h2: i32,
-    s2: f64,
-    v2: f64,
-    total: usize,
-    closed: bool,
-) -> Vec<Color> {
-    let n = if closed { total / 2 + 1 } else { total };
-    let dh = (h2 - h1) as f64 / n as f64;
-    let ds = (s2 - s1) / n as f64;
-    let dv = (v2 - v1) / n as f64;
-    let mut out = vec![Color::new(255, 0, 0, 0); total];
-    for i in 0..n.min(total) {
-        let (r, g, b) = hsv_to_rgb(
-            (h1 as f64 + i as f64 * dh) as i32,
-            s1 + i as f64 * ds,
-            v1 + i as f64 * dv,
-        );
-        out[i] = Color::new(255, (r >> 8) as u8, (g >> 8) as u8, (b >> 8) as u8);
-    }
-    if closed {
-        for i in n..total {
-            out[i] = out[total - i];
-        }
-    }
-    out
-}
 
 #[derive(Clone, Copy)]
 struct Square {
@@ -169,7 +102,7 @@ impl Animation for PopSquares {
     fn new(config: &AnimConfig) -> Self {
         let (h1, s1, v1) = rgb_to_hsv(FG.0, FG.1, FG.2);
         let (h2, s2, v2) = rgb_to_hsv(BG.0, BG.1, BG.2);
-        let colors = make_color_ramp(h1, s1, v1, h2, s2, v2, NCOLORS, true);
+        let colors = make_color_ramp_stepped_hue(h1, s1, v1, h2, s2, v2, NCOLORS, true);
         let mut ps = PopSquares {
             gw: 0,
             gh: 0,

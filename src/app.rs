@@ -393,7 +393,7 @@ impl App {
         }
     }
 
-    /// Process the actual authentication synchronously.
+    /// Start authentication asynchronously and handle its result.
     pub fn process_auth(&mut self) {
         if self.password.is_none() || self.password.as_ref().map(|p| p.is_empty()).unwrap_or(true) {
             return;

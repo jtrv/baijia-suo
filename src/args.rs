@@ -82,7 +82,7 @@ impl Args {
     pub fn parse() -> Args {
         Self::parse_or_exit(std::env::args_os())
     }
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn parse_from<I, T>(iter: I) -> Args
     where
         I: IntoIterator<Item = T>,

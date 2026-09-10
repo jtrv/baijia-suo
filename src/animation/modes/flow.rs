@@ -20,7 +20,6 @@
 //
 // Rust port of xlockmore/modes/flow.c.
 
-#![allow(dead_code, unused_variables, unused_assignments, unused_imports)]
 use crate::rng::RngExt;
 use std::f64;
 
@@ -778,7 +777,6 @@ impl Animation for Flow {
             let mut prev_abs: Option<(i32, i32)> = None;
             for i in 0..end {
                 if i == break_idx {
-                    prev_abs = None;
                     break;
                 }
                 

@@ -23,6 +23,12 @@ use crate::auth::AuthState;
 use crate::render::pool::DoublePool;
 use crate::render::DamageRect;
 
+wayland_client::delegate_noop!(WaylandState: ignore WlCompositor);
+wayland_client::delegate_noop!(WaylandState: ignore WlShm);
+wayland_client::delegate_noop!(WaylandState: ignore WlShmPool);
+wayland_client::delegate_noop!(WaylandState: ignore ExtSessionLockManagerV1);
+wayland_client::delegate_noop!(WaylandState: ignore WlSurface);
+
 /// Set to true by SIGTERM/SIGINT; checked in the event loop.
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
@@ -306,7 +312,7 @@ impl WaylandState {
             // These dimensions come from the compositor (a trusted component,
             // but a broken one can send garbage). Reject anything whose device
             // buffer would overflow rather than panicking downstream — a
-            // locker crash exposes the desktop. Validating the byte size here,
+            // Validate the byte size here,
             // where the untrusted values enter, proves it fits for every
             // downstream allocation (pool, player), so those need no checks.
             let Some((pw, ph)) =
@@ -664,42 +670,6 @@ impl Dispatch<WlRegistry, ()> for WaylandState {
     }
 }
 
-impl Dispatch<WlCompositor, ()> for WaylandState {
-    fn event(
-        _: &mut Self,
-        _: &WlCompositor,
-        _: <WlCompositor as wayland_client::Proxy>::Event,
-        _: &(),
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-    }
-}
-
-impl Dispatch<WlShm, ()> for WaylandState {
-    fn event(
-        _: &mut Self,
-        _: &WlShm,
-        _: <WlShm as wayland_client::Proxy>::Event,
-        _: &(),
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-    }
-}
-
-impl Dispatch<WlShmPool, ()> for WaylandState {
-    fn event(
-        _: &mut Self,
-        _: &WlShmPool,
-        _: <WlShmPool as wayland_client::Proxy>::Event,
-        _: &(),
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-    }
-}
-
 impl Dispatch<WlBuffer, Arc<Mutex<bool>>> for WaylandState {
     fn event(
         _: &mut Self,
@@ -712,18 +682,6 @@ impl Dispatch<WlBuffer, Arc<Mutex<bool>>> for WaylandState {
         if let wayland_client::protocol::wl_buffer::Event::Release = event {
             *busy.lock().unwrap() = false;
         }
-    }
-}
-
-impl Dispatch<ExtSessionLockManagerV1, ()> for WaylandState {
-    fn event(
-        _: &mut Self,
-        _: &ExtSessionLockManagerV1,
-        _: <ExtSessionLockManagerV1 as wayland_client::Proxy>::Event,
-        _: &(),
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
     }
 }
 
@@ -994,18 +952,6 @@ impl Dispatch<ExtSessionLockSurfaceV1, ()> for WaylandState {
             // case needed.
             state.draw();
         }
-    }
-}
-
-impl Dispatch<WlSurface, ()> for WaylandState {
-    fn event(
-        _: &mut Self,
-        _: &WlSurface,
-        _: <WlSurface as wayland_client::Proxy>::Event,
-        _: &(),
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
     }
 }
 

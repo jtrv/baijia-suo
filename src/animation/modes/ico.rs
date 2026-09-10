@@ -16,7 +16,6 @@
 //
 // Rust port of xlockmore/modes/ico.c.
 
-#![allow(dead_code, unused_assignments)]
 use crate::rng::RngExt;
 use std::f64::consts::PI;
 use crate::animation::primitives::{draw_line, Color};
@@ -52,7 +51,6 @@ struct Point3D {
 
 struct Polyinfo {
     numverts: usize,
-    numedges: usize,
     numfaces: usize,
     v: &'static [Point3D],
     f: &'static [usize],
@@ -112,7 +110,7 @@ fn partial_non_hom_transform(n: usize, m: &Transform3D, input: &[Point3D], outpu
 
 static POLYGONS: &[Polyinfo] = &[
     Polyinfo {
-        numverts: 4, numedges: 6, numfaces: 4,
+        numverts: 4, numfaces: 4,
         v: &[
             Point3D { x: 0.57735, y: 0.57735, z: 0.57735 },
             Point3D { x: 0.57735, y: -0.57735, z: -0.57735 },
@@ -127,7 +125,7 @@ static POLYGONS: &[Polyinfo] = &[
         ],
     },
     Polyinfo {
-        numverts: 8, numedges: 12, numfaces: 6,
+        numverts: 8, numfaces: 6,
         v: &[
             Point3D { x: 0.57735, y: 0.57735, z: 0.57735 },
             Point3D { x: 0.57735, y: 0.57735, z: -0.57735 },
@@ -148,7 +146,7 @@ static POLYGONS: &[Polyinfo] = &[
         ],
     },
     Polyinfo {
-        numverts: 6, numedges: 12, numfaces: 8,
+        numverts: 6, numfaces: 8,
         v: &[
             Point3D { x: 1.0, y: 0.0, z: 0.0 },
             Point3D { x: -1.0, y: 0.0, z: 0.0 },
@@ -169,7 +167,7 @@ static POLYGONS: &[Polyinfo] = &[
         ],
     },
     Polyinfo {
-        numverts: 20, numedges: 30, numfaces: 12,
+        numverts: 20, numfaces: 12,
         v: &[
             Point3D { x: 0.0, y: 0.3090169943749474241, z: 0.8090169943749474241 },
             Point3D { x: 0.0, y: -0.3090169943749474241, z: 0.8090169943749474241 },
@@ -208,7 +206,7 @@ static POLYGONS: &[Polyinfo] = &[
         ],
     },
     Polyinfo {
-        numverts: 12, numedges: 30, numfaces: 20,
+        numverts: 12, numfaces: 20,
         v: &[
             Point3D { x: 0.0, y: 0.0, z: -0.9510565162951535721 },
             Point3D { x: 0.0, y: 0.8506508083520399322, z: -0.42532537 },
@@ -247,7 +245,7 @@ static POLYGONS: &[Polyinfo] = &[
         ],
     },
     Polyinfo {
-        numverts: 14, numedges: 24, numfaces: 12,
+        numverts: 14, numfaces: 12,
         v: &[
             Point3D { x: 1.0, y: 0.0, z: 0.0 },
             Point3D { x: 0.0, y: 1.0, z: 0.0 },
@@ -280,7 +278,7 @@ static POLYGONS: &[Polyinfo] = &[
         ],
     },
     Polyinfo {
-        numverts: 32, numedges: 60, numfaces: 30,
+        numverts: 32, numfaces: 30,
         v: &[
             Point3D { x: 0.0, y: 0.3090169943749474241, z: 0.8090169943749474241 },
             Point3D { x: 0.0, y: -0.3090169943749474241, z: 0.8090169943749474241 },
@@ -349,7 +347,7 @@ static POLYGONS: &[Polyinfo] = &[
         ],
     },
     Polyinfo {
-        numverts: 24, numedges: 36, numfaces: 14,
+        numverts: 24, numfaces: 14,
         v: &[
             Point3D { x: 0.8506508083520399322, y: 0.42532537, z: 0.0 },
             Point3D { x: 0.8506508083520399322, y: -0.42532537, z: 0.0 },
@@ -394,7 +392,7 @@ static POLYGONS: &[Polyinfo] = &[
         ],
     },
     Polyinfo {
-        numverts: 12, numedges: 24, numfaces: 14,
+        numverts: 12, numfaces: 14,
         v: &[
             Point3D { x: -0.5, y: -0.86602540, z: 0.0 },
             Point3D { x: -1.0, y: 0.0, z: 0.0 },

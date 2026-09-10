@@ -33,9 +33,7 @@ pub struct AnimationPlayer {
 impl AnimationPlayer {
     /// Creates a player for `mode_name`, or `None` if the mode isn't
     /// registered. `params.delay_us == 0` is resolved to the mode's
-    /// default here — the single place that mapping lives, replacing the
-    /// two duplicated (and drifted) match tables that used to live in
-    /// `app.rs`.
+    /// default here.
     pub fn new(
         mode_name: &str,
         mut params: AnimConfig,

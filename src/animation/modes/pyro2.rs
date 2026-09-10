@@ -16,7 +16,6 @@
 //
 // Rust port of xlockmore/modes/pyro2.c.
 
-#![allow(dead_code, unused_variables, unused_assignments, unused_imports)]
 use crate::rng::RngExt;
 use std::sync::OnceLock;
 
@@ -70,7 +69,6 @@ struct Spark {
     delta_t: f64,
     angle: f64,
     m: f64,
-    generation: i32,
     x1: i32,
     y1: i32,
     x2: i32,
@@ -86,7 +84,6 @@ struct Expl {
     y0: i32,
     sparks: Vec<Spark>,
     current_generation: i32,
-    etype: u32,
     firsttime: i32,
     typedata_integer: i32,
 }
@@ -277,7 +274,7 @@ impl Pyro {
             };
 
             let mut ttl = EXP_MAX_TTL / 2 + rng.random_range(0..EXP_MAX_TTL);
-            let mut v0 = 0.0;
+            let v0;
             let m = 2.0 + rng.random_range(0..2) as f64 / 2.0;
 
             match self.etype {
@@ -359,7 +356,6 @@ impl Pyro {
                 delta_t: 0.0,
                 angle: phi,
                 m,
-                generation: self.expl.current_generation,
                 x1: 0,
                 y1: 0,
                 x2: 0,
@@ -475,7 +471,7 @@ impl Animation for Pyro2 {
                     init: false, t: 0.0, th: 0.0, v0: 0.0, phi: 0.0, x1: -1, y1: -1, x2: -1, y2: -1,
                 },
                 expl: Expl {
-                    init: false, x0: 0, y0: 0, sparks: Vec::new(), current_generation: 0, etype, firsttime: 0, typedata_integer: 0,
+                    init: false, x0: 0, y0: 0, sparks: Vec::new(), current_generation: 0, firsttime: 0, typedata_integer: 0,
                 },
                 color1: 0,
                 color2: -1,

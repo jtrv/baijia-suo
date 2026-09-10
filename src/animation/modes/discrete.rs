@@ -36,7 +36,6 @@ const DEFAULT_NCOLORS: i32 = 100;
 /// xlockmore MAXRAND = 2^31 (used as the float divisor for LRAND())
 const MAXRAND: f64 = 2_147_483_648.0;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FType {
     Sqrt,
@@ -46,8 +45,6 @@ enum FType {
     Cubic,
     Henon,
     Ailuj,
-    Hshoe,
-    Delog,
 }
 
 /// 18-entry bias table — exact match to C `bias[BIASES]`:
@@ -76,8 +73,6 @@ pub struct Discrete {
     a: f64,
     b: f64,
     c: f64,
-    d: f64,
-    e: f64,
 
     // Current position in phase space
     i: f64,
@@ -154,28 +149,6 @@ impl Discrete {
         self.op = BIAS[Self::lrand(rng) as usize % BIAS.len()];
 
         match self.op {
-            FType::Hshoe => {
-                self.ic = 0.0;
-                self.jc = 0.0;
-                self.is = self.maxx as f64 / 4.0;
-                self.js = self.maxy as f64 / 4.0;
-                self.a = 0.5;
-                self.b = 0.5;
-                self.c = 0.2;
-                self.d = -1.25;
-                self.e = 1.0;
-                self.i = 0.0;
-                self.j = 0.0;
-            }
-            FType::Delog => {
-                self.ic = 0.5;
-                self.jc = 0.3;
-                self.is = self.maxx as f64 / 1.5;
-                self.js = self.maxy as f64 / 1.5;
-                self.a = 2.176399;
-                self.i = 0.01;
-                self.j = 0.01;
-            }
             FType::Henon => {
                 self.jc = (Self::lrand_f(rng) * 2.0 - 1.0) * 0.4;
                 self.ic = 1.3 * (1.0 - (self.jc * self.jc) / (0.4 * 0.4));
@@ -290,8 +263,6 @@ impl Animation for Discrete {
             a: 0.0,
             b: 0.0,
             c: 0.0,
-            d: 0.0,
-            e: 0.0,
             i: 0.0,
             j: 0.0,
             ic: 0.0,
@@ -346,53 +317,6 @@ impl Animation for Discrete {
             let oldi = self.i;
 
             match self.op {
-                FType::Hshoe => {
-                    // The C code (with #define HD active) sets i,j from k, then
-                    // applies the map inside a for loop:
-                    //
-                    //   if   (k < count/4)     { i = k/count*8-1;         j = 1  }
-                    //   elif (k < count/2)     { i = 1;                   j = 3-k/count*8 }
-                    //   elif (k < 3*count/4)   { i = 5-k/count*8;         j = -1 }
-                    //   else                   { i = -1;                  j = k/count*8-7 }
-                    //   for (i_inner = 1; i_inner < (inc%15); i_inner++) {
-                    //       oldi = i; oldj = j;
-                    //       i = (a*oldi + b)*oldj;
-                    //       j = (e - d + c*oldi)*oldj*oldj - c*oldi + d;
-                    //   }
-                    //
-                    // When inc%15 <= 1 the loop never runs; the raw (i,j) is plotted.
-
-                    let kf = k as f64;
-                    let cf = count as f64;
-                    if k < count / 4 {
-                        self.i = (kf / cf) * 8.0 - 1.0;
-                        self.j = 1.0;
-                    } else if k < count / 2 {
-                        self.i = 1.0;
-                        self.j = 3.0 - (kf / cf) * 8.0;
-                    } else if k < 3 * count / 4 {
-                        self.i = 5.0 - (kf / cf) * 8.0;
-                        self.j = -1.0;
-                    } else {
-                        self.i = -1.0;
-                        self.j = (kf / cf) * 8.0 - 7.0;
-                    }
-
-                    let inner_limit = self.inc % 15;
-                    for _inner in 1..inner_limit {
-                        let oi = self.i;
-                        let oj = self.j;
-                        self.i = (self.a * oi + self.b) * oj;
-                        self.j = (self.e - self.d + self.c * oi) * oj * oj
-                            - self.c * oi + self.d;
-                    }
-                }
-
-                FType::Delog => {
-                    self.j = oldi;
-                    self.i = self.a * oldi * (1.0 - oldj);
-                }
-
                 FType::Henon => {
                     self.i = oldj + self.a - self.b * oldi * oldi;
                     self.j = self.c * oldi;

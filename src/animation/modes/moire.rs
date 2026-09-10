@@ -14,7 +14,7 @@
  * Rust port of xscreensaver's moire.c for baijia-suo.
  */
 
-use crate::animation::primitives::{clear_buffer, hsv_to_rgb, put_pixel, Color};
+use crate::animation::primitives::{clear_buffer, put_pixel, make_color_ramp_stepped_hue, rgb_to_hsv, Color};
 use crate::animation::{AnimConfig, Animation};
 use crate::rng::RngExt;
 
@@ -28,73 +28,6 @@ const OFFSET: i32 = 50;
 // stepping. The finished-screen pause is unchanged.
 const CHUNK_SIZE: i32 = 7;
 
-fn rgb_to_hsv(r: u16, g: u16, b: u16) -> (i32, f64, f64) {
-    let rr = r as f64 / 65535.0;
-    let gg = g as f64 / 65535.0;
-    let bb = b as f64 / 65535.0;
-    let (mut cmax, mut cmin, mut imax) = (rr, gg, 1);
-    if cmax < gg {
-        cmax = gg;
-        cmin = rr;
-        imax = 2;
-    }
-    if cmax < bb {
-        cmax = bb;
-        imax = 3;
-    }
-    if cmin > bb {
-        cmin = bb;
-    }
-    let cmm = cmax - cmin;
-    let v = cmax;
-    let (h, s) = if cmm == 0.0 {
-        (0.0, 0.0)
-    } else {
-        let s = cmm / cmax;
-        let mut h = match imax {
-            1 => (gg - bb) / cmm,
-            2 => 2.0 + (bb - rr) / cmm,
-            _ => 4.0 + (rr - gg) / cmm,
-        };
-        if h < 0.0 {
-            h += 6.0;
-        }
-        (h, s)
-    };
-    ((h * 60.0) as i32, s, v)
-}
-
-/* port of utils/colors.c make_color_ramp (color computation only) */
-fn make_color_ramp(
-    h1: i32,
-    s1: f64,
-    v1: f64,
-    h2: i32,
-    s2: f64,
-    v2: f64,
-    total: usize,
-    closed: bool,
-) -> Vec<Color> {
-    let n = if closed { total / 2 + 1 } else { total };
-    let dh = (h2 - h1) as f64 / n as f64;
-    let ds = (s2 - s1) / n as f64;
-    let dv = (v2 - v1) / n as f64;
-    let mut out = vec![Color::new(255, 0, 0, 0); total];
-    for i in 0..n.min(total) {
-        let (r, g, b) = hsv_to_rgb(
-            (h1 as f64 + i as f64 * dh) as i32,
-            s1 + i as f64 * ds,
-            v1 + i as f64 * dv,
-        );
-        out[i] = Color::new(255, (r >> 8) as u8, (g >> 8) as u8, (b >> 8) as u8);
-    }
-    if closed {
-        for i in n..total {
-            out[i] = out[total - i];
-        }
-    }
-    out
-}
 
 pub struct Moire {
     width: u32,
@@ -131,7 +64,7 @@ impl Moire {
         );
         let (fgh, fgs, fgv) = rgb_to_hsv(fr, fg, fb);
         let (bgh, bgs, bgv) = rgb_to_hsv(br, bg, bb);
-        self.colors = make_color_ramp(fgh, fgs, fgv, bgh, bgs, bgv, self.ncolors, true);
+        self.colors = make_color_ramp_stepped_hue(fgh, fgs, fgv, bgh, bgs, bgv, self.ncolors, true);
     }
 }
 

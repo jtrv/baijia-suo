@@ -15,8 +15,7 @@ impl Password {
     }
 
     /// Append a Unicode codepoint as UTF-8. Rejects invalid codepoints
-    /// (surrogates, > U+10FFFF) — this is what keeps `as_str`'s
-    /// `from_utf8_unchecked` sound. Returns an error if the buffer would
+    /// (surrogates, > U+10FFFF) — this preserves valid UTF-8. Returns an error if the buffer would
     /// overflow (accounting for a trailing NUL byte).
     pub fn append_char(&mut self, codepoint: u32) -> Result<(), PasswordError> {
         let ch = char::from_u32(codepoint).ok_or(PasswordError::InvalidCodepoint)?;
