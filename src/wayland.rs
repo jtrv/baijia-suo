@@ -19,6 +19,7 @@ use wayland_protocols::ext::session_lock::v1::client::{
 };
 
 use crate::app::App;
+use crate::auth::AuthState;
 use crate::render::pool::DoublePool;
 use crate::render::DamageRect;
 
@@ -35,6 +36,10 @@ fn pollable_animation_wake(any_surface_ready: bool, wake: Option<Instant>) -> Op
 
 fn callback_should_draw(queued: bool, wake: Option<Instant>, now: Instant) -> bool {
     queued || wake.is_some_and(|deadline| now >= deadline)
+}
+
+fn should_unlock(auth_state: AuthState, auth_settled: bool) -> bool {
+    auth_settled && matches!(auth_state, AuthState::Success)
 }
 
 pub(crate) fn submitted_damage(
@@ -507,16 +512,16 @@ impl WaylandState {
             needs_draw = true;
         }
 
-        if self.app.auth_settled(now) {
-            if matches!(self.app.auth_state, crate::auth::AuthState::Success) {
-                self.running = false;
-                self.unlock_on_exit = true;
-                return;
-            } else if matches!(self.app.auth_state, crate::auth::AuthState::Invalid)
-                && self.auth_clear_at.is_none()
-            {
-                self.auth_clear_at = Some(now + Duration::from_millis(3000));
-            }
+        let auth_settled = self.app.auth_settled(now);
+        if should_unlock(self.app.auth_state, auth_settled) {
+            self.running = false;
+            self.unlock_on_exit = true;
+            return;
+        } else if auth_settled
+            && matches!(self.app.auth_state, AuthState::Invalid)
+            && self.auth_clear_at.is_none()
+        {
+            self.auth_clear_at = Some(now + Duration::from_millis(3000));
         }
 
         // Redraw once when a PAM message times out, and once when the whole
@@ -1121,6 +1126,68 @@ pub fn run_wayland(app: App) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn source_without_comments(source: &str) -> String {
+        let mut uncommented = String::with_capacity(source.len());
+        let mut chars = source.chars().peekable();
+        while let Some(character) = chars.next() {
+            if character == '/' && chars.peek() == Some(&'/') {
+                chars.next();
+                for character in chars.by_ref() {
+                    if character == '\n' {
+                        uncommented.push(character);
+                        break;
+                    }
+                }
+            } else if character == '/' && chars.peek() == Some(&'*') {
+                chars.next();
+                let mut previous = '\0';
+                for character in chars.by_ref() {
+                    if previous == '*' && character == '/' {
+                        break;
+                    }
+                    previous = character;
+                }
+            } else {
+                uncommented.push(character);
+            }
+        }
+        uncommented
+    }
+
+    #[test]
+    fn only_settled_success_unlocks() {
+        for (auth_state, auth_settled, expected) in [
+            (AuthState::Idle, false, false),
+            (AuthState::Idle, true, false),
+            (AuthState::Typing, false, false),
+            (AuthState::Typing, true, false),
+            (AuthState::Verifying, false, false),
+            (AuthState::Verifying, true, false),
+            (AuthState::Success, false, false),
+            (AuthState::Success, true, true),
+            (AuthState::Invalid, false, false),
+            (AuthState::Invalid, true, false),
+        ] {
+            assert_eq!(should_unlock(auth_state, auth_settled), expected);
+        }
+    }
+
+    #[test]
+    fn session_unlock_has_one_authentication_gated_path() {
+        // This protects the invariant that only settled successful authentication releases the session lock.
+        let source = source_without_comments(include_str!("wayland.rs"));
+        for needle in [
+            concat!("unlock_and_", "destroy"),
+            concat!("unlock_on_exit = ", "true"),
+        ] {
+            assert_eq!(
+                source.matches(needle).count(),
+                1,
+                "{needle} must have exactly one non-comment occurrence to preserve the single authentication-gated unlock path; update this test deliberately if that invariant legitimately changes"
+            );
+        }
+    }
 
     #[test]
     fn animation_deadline_waits_for_a_ready_surface() {
