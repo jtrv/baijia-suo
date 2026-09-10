@@ -17,13 +17,21 @@
 ## Features
 
 - **Secure by Design:**
-  - Out-of-process PAM authentication to prevent memory leaks in the compositor.
-  - Zeroized password buffers to ensure secrets are securely wiped.
-  - Page-aligned, `mlock`ed password buffers; the auth child is fully pinned in RAM with `mlockall`.
+  - PAM runs in a forked child that drops privileges, so the process driving
+    the lock screen never holds the authentication stack.
+  - Password buffers are page-aligned, `mlock`ed, and wiped with volatile
+    writes before being freed. Locking is best effort: see
+    [SECURITY.md](.github/SECURITY.md) for what is and is not guaranteed.
   - Core dumps and non-root `ptrace` disabled (`PR_SET_DUMPABLE`).
+  - `unsafe` is confined to seven named FFI modules; everything else,
+    including all 35k lines of animation code, is `#![forbid(unsafe_code)]`.
 - **Modern Wayland:**
   - Uses the `ext-session-lock-v1` protocol.
-  - Graceful crash handling; Wayland session locks cannot be bypassed even if the locker terminates unexpectedly.
+  - Once locked, no failure path unlocks: a crash, panic, signal or lost
+    compositor connection ends the process without sending an unlock, and the
+    session stays locked. That is a lockout, not a bypass.
+  - A malformed config file never prevents locking; it falls back to a black
+    screen and warns.
 - **Customizable Rendering:**
   - RGBA background colors and a large set of animated backgrounds
     (xlockmore / xscreensaver ports).
