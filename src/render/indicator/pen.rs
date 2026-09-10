@@ -411,13 +411,24 @@ impl<'a> Pen<'a> {
 mod tests {
     use super::*;
 
-    /// Status-text glyphs cover ASCII plus representative localized PAM characters.
+    /// Covers the scripts this pen can lay out: left-to-right, no combining
+    /// marks. Scripts needing shaping are excluded at generation time.
     #[test]
     fn status_text_glyphs_are_present() {
         assert!((0x20..=0x7e).all(|code| lookup(char::from_u32(code).unwrap()).is_some()));
         assert!(lookup('é').is_some());
         assert!(lookup('Ж').is_some());
         assert!(lookup('Ω').is_some());
+        assert!(lookup('ạ').is_some());
+        assert!(lookup('€').is_some());
+    }
+
+    /// Hebrew is bidirectional and this pen advances strictly left to right,
+    /// so a mapped glyph would render the message reversed. A .notdef box is
+    /// the honest failure.
+    #[test]
+    fn shaping_dependent_scripts_are_not_claimed() {
+        assert!(lookup('א').is_none());
     }
 
     /// PAM messages arrive in the system locale. Liberation Sans has no CJK
