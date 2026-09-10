@@ -258,15 +258,47 @@ impl Config {
             .clone()
             .map(PathBuf::from)
             .or_else(default_config_path);
-        let file = match path {
-            Some(path) => {
-                let text = std::fs::read_to_string(&path)
-                    .map_err(|e| format!("cannot read config file {}: {}", path.display(), e))?;
-                FileConfig::parse(&text).map_err(|e| format!("{}: {}", path.display(), e))?
-            }
-            None => FileConfig::default(),
+        let Some(path) = path else {
+            return Self::build(args, FileConfig::default());
         };
-        Self::build(args, file)
+
+        let file = match std::fs::read_to_string(&path) {
+            Ok(text) => match FileConfig::parse(&text) {
+                Ok(file) => file,
+                Err(error) => {
+                    log::warn!(
+                        "cannot parse config file {}: {}; using degraded visual configuration",
+                        path.display(),
+                        error
+                    );
+                    return Self::build(args, FileConfig::default());
+                }
+            },
+            Err(error) => {
+                log::warn!(
+                    "cannot read config file {}: {}; using degraded visual configuration",
+                    path.display(),
+                    error
+                );
+                return Self::build(args, FileConfig::default());
+            }
+        };
+
+        match Self::build(args, file) {
+            Ok(config) => Ok(config),
+            Err(error) => match Self::build(args, FileConfig::default()) {
+                Ok(config) => {
+                    // Opaque black keeps OLED pixels off while the indicator remains usable.
+                    log::warn!(
+                        "invalid config file {}: {}; using degraded visual configuration",
+                        path.display(),
+                        error
+                    );
+                    Ok(config)
+                }
+                Err(cli_error) => Err(cli_error),
+            },
+        }
     }
 
     /// Merge CLI arguments over file options and validate the result.
@@ -629,8 +661,62 @@ mod tests {
         let cfg = Config::from_args(&args(&["-C", path.to_str().unwrap()])).unwrap();
         assert_eq!(cfg.background_color, Color::from_hex("112233").unwrap());
 
-        // Explicit -C pointing at a missing file is an error, not a silent no-op.
         let missing = dir.path().join("nope");
-        assert!(Config::from_args(&args(&["-C", missing.to_str().unwrap()])).is_err());
+        assert_degraded(Config::from_args(&args(&["-C", missing.to_str().unwrap()])).unwrap());
+    }
+
+    fn assert_degraded(cfg: Config) {
+        assert_eq!(cfg.background_color, Color::from_hex("#000000").unwrap());
+        assert!(cfg.animation.modes.is_empty());
+        assert_eq!(cfg.indicator.opacity, 1.0);
+    }
+
+    #[test]
+    fn invalid_config_file_degrades_to_an_opaque_black_solid_background() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "not valid toml =").unwrap();
+
+        assert_degraded(Config::from_args(&args(&["-C", path.to_str().unwrap()])).unwrap());
+    }
+
+    #[test]
+    fn invalid_config_value_degrades_to_an_opaque_black_solid_background() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "[indicator]\nopacity = 5.0\n").unwrap();
+
+        assert_degraded(Config::from_args(&args(&["-C", path.to_str().unwrap()])).unwrap());
+    }
+
+    #[test]
+    fn invalid_cli_value_still_returns_an_error_with_a_bad_config_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "not valid toml =").unwrap();
+
+        assert!(Config::from_args(&args(&[
+            "-C",
+            path.to_str().unwrap(),
+            "--indicator-opacity",
+            "5.0",
+        ]))
+        .is_err());
+    }
+
+    #[test]
+    fn valid_config_file_is_not_degraded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "color = \"112233\"\nanimation = \"spiral\"\n[indicator]\nopacity = 0.5\n",
+        )
+        .unwrap();
+
+        let cfg = Config::from_args(&args(&["-C", path.to_str().unwrap()])).unwrap();
+        assert_eq!(cfg.background_color, Color::from_hex("112233").unwrap());
+        assert_eq!(cfg.animation.modes, ["spiral"]);
+        assert_eq!(cfg.indicator.opacity, 0.5);
     }
 }

@@ -203,13 +203,11 @@ pub fn run() {
         std::process::exit(run_auth_test(&args));
     }
 
-    let cfg = match Config::from_args(&args) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    };
+    let cfg = Config::from_args(&args).unwrap_or_else(|e| {
+        // File failures degrade before this point; CLI errors stay terminal-visible and fatal.
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    });
 
     log::debug!("Configuration loaded: {:?}", cfg);
 

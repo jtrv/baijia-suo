@@ -129,7 +129,9 @@ Keys mirror the long option names. Example:
 	color = "3c3c3c"
 
 Unknown keys are rejected. See _config.example.toml_ in the distribution for a
-fully commented example.
+fully commented example. If the configuration file cannot be read, parsed, or
+validated, baijia-suo logs a warning and locks with an opaque black solid
+background; command-line option errors remain fatal.
 
 # EXAMPLES
 
