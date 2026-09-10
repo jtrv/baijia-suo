@@ -35,6 +35,10 @@ jobs:
           cp -r target/completions "$dir"/
           tar czf "${dir}.tar.gz" "$dir"
           sha256sum "${dir}.tar.gz" > "${dir}.tar.gz.sha256"
+      - name: Attest release archive
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.2.0
+        with:
+          subject-path: baijia-suo-*.tar.gz
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,7 +48,3 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --generate-notes \
             --notes "$(cat .github/release-notes.md)" \
             baijia-suo-*.tar.gz baijia-suo-*.tar.gz.sha256
-      - name: Attest release archive
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.2.0
-        with:
-          subject-path: baijia-suo-*.tar.gz
