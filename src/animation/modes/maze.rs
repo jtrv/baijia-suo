@@ -73,26 +73,13 @@ fn fill_rectangle(
     let x1 = (x + w).min(width as i32);
     let y1 = (y + h).min(height as i32);
     if x0 >= x1 || y0 >= y1 { return; }
-    let c = color.to_argb32();
-    let c_bytes = [
-        (c & 0xFF) as u8,
-        ((c >> 8) & 0xFF) as u8,
-        ((c >> 16) & 0xFF) as u8,
-        ((c >> 24) & 0xFF) as u8,
-    ];
+    let c_bytes = color.to_argb32().to_ne_bytes();
     for yi in y0..y1 {
         let start = ((yi as usize) * (width as usize) + (x0 as usize)) * 4;
         let end = ((yi as usize) * (width as usize) + (x1 as usize)) * 4;
         let row = &mut buffer[start..end];
-        let (pre, aligned, post) = unsafe { row.align_to_mut::<u32>() };
-        for p in aligned.iter_mut() {
-            *p = c;
-        }
-        for chunk in pre.as_chunks_mut::<4>().0.iter_mut().chain(post.as_chunks_mut::<4>().0.iter_mut()) {
-            chunk[0] = c_bytes[0];
-            chunk[1] = c_bytes[1];
-            chunk[2] = c_bytes[2];
-            chunk[3] = c_bytes[3];
+        for chunk in row.as_chunks_mut::<4>().0 {
+            *chunk = c_bytes;
         }
     }
 }

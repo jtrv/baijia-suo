@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 // CLI argument definitions.
 
 use std::ffi::OsString;

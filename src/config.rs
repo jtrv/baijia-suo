@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Configuration for baijia-suo.
 //!
 //! Configuration comes from two places, merged in [`Config::from_args`]:

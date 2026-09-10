@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Application state machine and Wayland connection management.
 //!
 //! Handles the main event loop, Wayland connection, and state transitions

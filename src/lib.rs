@@ -8,19 +8,28 @@
 //! harnesses (`animation`, `render::indicator`, `app::AuthState`,
 //! `config`). Everything else is crate-private.
 
+#![deny(unsafe_code)]
+
 pub mod animation;
 pub mod app;
 pub mod config;
+#[allow(unsafe_code)]
 pub mod render;
 
+#[allow(unsafe_code)]
 mod rng;
 
 mod args;
+#[allow(unsafe_code)]
 mod auth;
+#[allow(unsafe_code)]
 mod cli;
+#[allow(unsafe_code)]
 mod input;
 mod password;
+#[allow(unsafe_code)]
 mod secure;
+#[allow(unsafe_code)]
 mod wayland;
 
 pub use cli::run;

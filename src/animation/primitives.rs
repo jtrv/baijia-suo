@@ -80,25 +80,9 @@ pub fn put_pixel(buffer: &mut [u8], width: u32, height: u32, x: i32, y: i32, col
 
 /// Clear the entire buffer with a color.
 pub fn clear_buffer(buffer: &mut [u8], color: Color) {
-    let c = color.to_argb32();
-    let (pre, aligned, post) = unsafe { buffer.align_to_mut::<u32>() };
-
-    // We expect the buffer to be u32-aligned (ARGB32)
-    for p in aligned.iter_mut() {
-        *p = c;
-    }
-
-    // Fallback for non-aligned (shouldn't happen for 4-byte pixels aligned properly)
-    for chunk in pre
-        .as_chunks_mut::<4>()
-        .0
-        .iter_mut()
-        .chain(post.as_chunks_mut::<4>().0.iter_mut())
-    {
-        chunk[0] = color.b;
-        chunk[1] = color.g;
-        chunk[2] = color.r;
-        chunk[3] = color.a;
+    let px = color.to_argb32().to_ne_bytes();
+    for chunk in buffer.as_chunks_mut::<4>().0 {
+        *chunk = px;
     }
 }
 

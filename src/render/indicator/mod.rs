@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Typing-indicator rendering.
 //!
 //! Each animation style is a `mode` in its own submodule, selected by
