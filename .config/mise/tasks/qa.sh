@@ -79,14 +79,17 @@ cleanup_config() { rm -f "$config"; }
 # locker keeps running until you unlock or Ctrl-C, so you can type at the
 # indicator or watch --debug-timing scroll.
 if [ "$static" -eq 1 ]; then
-    trap cleanup_config EXIT INT TERM
+    trap cleanup_config EXIT
+    trap 'exit 130' INT TERM
     # %q-quote each arg so paths with spaces survive the KDL string and the
     # shell that spawn-sh-at-startup runs it through.
     printf 'spawn-sh-at-startup "%s' "$bin" > "$config"
     for arg in "$@"; do printf ' %s' "$(printf '%q' "$arg")" >> "$config"; done
     printf '"\n' >> "$config"
     echo "[visual-test] static session: $bin $*"
-    exec niri -c "$config"
+    # Not exec: exec replaces this shell, and the traps above go with it.
+    niri -c "$config"
+    exit
 fi
 
 # Animation list: explicit args, else every registered mode.
@@ -105,10 +108,14 @@ write_config() {
 
 rotator_pid=""
 cleanup() {
+    # The rotator ignores SIGINT — bash disables it for background jobs in a
+    # non-interactive shell — so Ctrl-C alone leaves it rewriting the config
+    # and printing forever. SIGTERM it by pid instead.
     [ -n "$rotator_pid" ] && kill "$rotator_pid" 2>/dev/null || true
     rm -f "$config"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 # Show the first mode, then rotate. The rotator sleeps first so each mode
 # (including the first) gets a full interval before the switch.
@@ -127,4 +134,5 @@ echo "[visual-test] showing ${anims[0]} (1/${#anims[@]})"
 rotator_pid=$!
 
 # watchexec restarts the nested niri each time the rotator rewrites the config.
-exec watchexec -r -w "$config" -- niri -c "$config"
+# Not exec: exec replaces this shell, and the cleanup trap goes with it.
+watchexec -r -w "$config" -- niri -c "$config"
