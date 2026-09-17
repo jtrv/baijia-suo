@@ -67,6 +67,16 @@ pub trait Animation: Send {
     /// Render the current state to the pixel buffer.
     fn render(&self, buffer: &mut [u8], width: u32, height: u32);
 
+    /// Requires a non-incremental render policy and interpolatable previous/current states.
+    fn interpolates(&self) -> bool {
+        false
+    }
+
+    /// Render between the previous and current tick (one tick of latency).
+    fn render_interpolated(&self, buffer: &mut [u8], width: u32, height: u32, _fraction: f64) {
+        self.render(buffer, width, height);
+    }
+
     /// Reset the animation state.
     fn reset(&mut self, config: &AnimConfig);
 

@@ -32,14 +32,10 @@ const DEFAULT_DELTAY: i32 = 9;
 // 6x as often and scale per-tick rotation by 1/6, so real-time angular
 // velocity is unchanged but the motion is smooth.
 //
-// Tick a hair under the player's 16_666us REFRESH_US so it uses the
-// sub-refresh catch-up path (max_ticks > 1). At exactly 16_666 ico sat on
-// the knife-edge with max_ticks == 1: any frame callback that jittered even
-// a few us early produced a 0-tick frame (a repeated frame = visible
-// stutter) that the once-per-frame path could never catch up. The ~666us
-// margin covers normal callback jitter. ~62fps nominal; imperceptible.
+// Interpolate the fixed simulation steps at presentation time so the
+// simulation clock cannot beat against the display's refresh rate.
 const ICO_FPS: u64 = 60;
-const ICO_TICK_US: u64 = 16_000;
+const ICO_TICK_US: u64 = 1_000_000 / ICO_FPS;
 const FPS_SCALE: f64 = 10.0 / ICO_FPS as f64; // upstream 10fps → our 60fps
 
 #[derive(Clone, Copy, Default)]
@@ -477,6 +473,7 @@ impl Ico {
         if init {
             for i in 0..nv {
                 self.xv[0][i] = poly.v[i];
+                self.xv[1][i] = poly.v[i];
             }
             self.xv_buffer = 0;
             self.wo2 = self.poly_w as f64 / 2.0;
@@ -569,17 +566,36 @@ impl Animation for Ico {
     }
 
     fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
+        self.render_interpolated(buffer, width, height, 1.0);
+    }
+
+    fn interpolates(&self) -> bool {
+        true
+    }
+
+    fn render_interpolated(&self, buffer: &mut [u8], width: u32, height: u32, fraction: f64) {
         let poly = &POLYGONS[self.object];
         let nv = poly.numverts;
         let nf = poly.numfaces;
 
-        let pxv = &self.xv[self.xv_buffer];
+        let mut pxv = [Point3D::default(); MAXVERTS];
+        for (i, point) in pxv.iter_mut().enumerate().take(nv) {
+            let prev = self.xv[1 - self.xv_buffer][i];
+            let curr = self.xv[self.xv_buffer][i];
+            *point = Point3D {
+                x: prev.x + (curr.x - prev.x) * fraction,
+                y: prev.y + (curr.y - prev.y) * fraction,
+                z: prev.z + (curr.z - prev.z) * fraction,
+            };
+        }
+        let x = self.prev_x + (self.curr_x - self.prev_x) * fraction;
+        let y = self.prev_y + (self.curr_y - self.prev_y) * fraction;
         let mut v2 = [(0i32, 0i32); MAXVERTS];
 
         for i in 0..nv {
             v2[i] = (
-                (((pxv[i].x + 1.0) * self.wo2) + self.curr_x).round() as i32,
-                (((pxv[i].y + 1.0) * self.ho2) + self.curr_y).round() as i32,
+                (((pxv[i].x + 1.0) * self.wo2) + x).round() as i32,
+                (((pxv[i].y + 1.0) * self.ho2) + y).round() as i32,
             );
         }
 
@@ -676,6 +692,8 @@ impl Animation for Ico {
 
         self.curr_x = rng.random_range(0..((self.width as i32 - self.poly_w).max(1))) as f64;
         self.curr_y = rng.random_range(0..((self.height as i32 - self.poly_h).max(1))) as f64;
+        self.prev_x = self.curr_x;
+        self.prev_y = self.curr_y;
 
         self.poly_delta_x *= if rng.random::<bool>() { 1.0 } else { -1.0 };
         self.poly_delta_y *= if rng.random::<bool>() { 1.0 } else { -1.0 };
@@ -700,5 +718,87 @@ impl Animation for Ico {
 
     fn frame_delay_us(&self) -> u64 {
         ICO_TICK_US
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interpolation_preserves_previous_frame_across_buffer_swaps() {
+        let config = AnimConfig {
+            width: 160,
+            height: 120,
+            ..AnimConfig::default()
+        };
+        let mut previous = vec![0; (config.width * config.height * 4) as usize];
+        let mut interpolated = previous.clone();
+        for object in 0..POLYSIZE {
+            let mut ico = Ico::new(&config);
+            ico.object = object;
+            ico.init_poly(true);
+            previous.fill(0);
+            ico.render(&mut previous, config.width, config.height);
+            interpolated.fill(0);
+            ico.render_interpolated(&mut interpolated, config.width, config.height, 0.0);
+            assert_eq!(previous, interpolated);
+            for _ in 0..64 {
+                ico.tick();
+                interpolated.fill(0);
+                ico.render_interpolated(&mut interpolated, config.width, config.height, 0.0);
+                assert_eq!(previous, interpolated, "object {object}");
+                previous.fill(0);
+                ico.render(&mut previous, config.width, config.height);
+            }
+        }
+    }
+
+    #[test]
+    fn interpolation_moves_projected_vertices_between_ticks() {
+        let config = AnimConfig {
+            width: 80,
+            height: 60,
+            ..AnimConfig::default()
+        };
+        let mut ico = Ico::new(&config);
+        ico.object = 0;
+        ico.edges = false;
+        ico.opaque = false;
+        ico.ncolors = 2;
+        ico.prev_x = 10.0;
+        ico.curr_x = 14.0;
+        ico.prev_y = 20.0;
+        ico.curr_y = 24.0;
+        ico.wo2 = 8.0;
+        ico.ho2 = 8.0;
+        ico.xv[1 - ico.xv_buffer].fill(Point3D {
+            x: -1.0,
+            y: -1.0,
+            z: 0.0,
+        });
+        ico.xv[ico.xv_buffer].fill(Point3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        let mut buffer = vec![0; (config.width * config.height * 4) as usize];
+        for step in 0..=4 {
+            buffer.fill(0);
+            ico.render_interpolated(
+                &mut buffer,
+                config.width,
+                config.height,
+                f64::from(step) / 4.0,
+            );
+            let points: Vec<_> = buffer
+                .as_chunks::<4>().0.iter()
+                .enumerate()
+                .filter_map(|(i, pixel)| pixel.iter().any(|&v| v != 0).then_some(i))
+                .collect();
+            let x = 10 + step * 3;
+            let y = 20 + step * 3;
+            assert_eq!(points, vec![(y * config.width + x) as usize]);
+        }
     }
 }

@@ -134,6 +134,10 @@ impl AnimationPlayer {
             self.next_wake = None;
             return false;
         }
+        let interpolates = self.animation.interpolates();
+        if interpolates && !self.dirty && self.next_wake.is_some_and(|wake| now < wake) {
+            return false;
+        }
         // The max_fps cap stretches the wakeup cadence, never the tick
         // arithmetic: capped fast modes catch up within each longer frame,
         // so rendering slows but simulation speed doesn't.
@@ -150,7 +154,7 @@ impl AnimationPlayer {
         //   state is presentable, and when a frame overruns its budget the
         //   animation slows down smoothly instead of double-ticking, which
         //   reads as stop-and-go motion (seen on xrayswarm).
-        let max_ticks: u64 = if delay_us < REFRESH_US { 10 } else { 1 };
+        let max_ticks: u64 = if interpolates || delay_us < REFRESH_US { 10 } else { 1 };
 
         // Catch-up ticks share a wall-clock budget: cheap ticks (discrete
         // plots 4096 points in microseconds) catch all the way up, while a
@@ -217,11 +221,22 @@ impl AnimationPlayer {
                     // holds the current frame: keystroke/indicator redraws
                     // call advance() far more often than most mode clocks
                     // fire, and re-rendering an identical frame is waste.
-                    if done > 0 || self.dirty {
+                    if done > 0 || self.dirty || interpolates {
                         if policy == RenderPolicy::ClearThenRender {
                             primitives::clear_buffer(buf, self.background);
                         }
-                        self.animation.render(buf, w, h);
+                        if interpolates {
+                            let fraction = if done < planned {
+                                0.0
+                            } else {
+                                (now.duration_since(last_anchor).as_secs_f64()
+                                    / (delay_us as f64 * 1e-6))
+                                    .min(1.0)
+                            };
+                            self.animation.render_interpolated(buf, w, h, fraction);
+                        } else {
+                            self.animation.render(buf, w, h);
+                        }
                         self.dirty = false;
                         changed = true;
                     }
@@ -240,6 +255,11 @@ impl AnimationPlayer {
             last_anchor
         });
         self.next_wake = Some(self.last_tick.unwrap() + Duration::from_micros(sched_us));
+        if interpolates {
+            // The compositor paces interpolated frames; a second fixed clock
+            // would beat against refresh and repeat frames even without jitter.
+            self.next_wake = Some(now + Duration::from_micros(self.min_delay_us.max(1)));
+        }
 
         // Variable-delay modes (moire's 5s finished-screen pause, coral,
         // abstractile, ...) change frame_delay_us() *inside* tick(). The
@@ -331,6 +351,125 @@ fn rgba_to_color(rgba: (f64, f64, f64, f64)) -> primitives::Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TrackedIco {
+        ico: super::super::modes::ico::Ico,
+        ticks: u64,
+    }
+
+    impl Animation for TrackedIco {
+        fn new(config: &AnimConfig) -> Self {
+            Self {
+                ico: super::super::modes::ico::Ico::new(config),
+                ticks: 0,
+            }
+        }
+
+        fn tick(&mut self) {
+            self.ico.tick();
+            self.ticks += 1;
+        }
+
+        fn render(&self, buffer: &mut [u8], width: u32, height: u32) {
+            self.ico.render(buffer, width, height);
+            buffer[..8].copy_from_slice(&(self.ticks as f64).to_ne_bytes());
+        }
+
+        fn interpolates(&self) -> bool {
+            self.ico.interpolates()
+        }
+
+        fn render_interpolated(&self, buffer: &mut [u8], width: u32, height: u32, fraction: f64) {
+            self.ico
+                .render_interpolated(buffer, width, height, fraction);
+            let phase = self.ticks as f64 - 1.0 + fraction;
+            buffer[..8].copy_from_slice(&phase.to_ne_bytes());
+        }
+
+        fn reset(&mut self, config: &AnimConfig) {
+            self.ico.reset(config);
+            self.ticks = 0;
+        }
+
+        fn render_policy(&self) -> RenderPolicy {
+            self.ico.render_policy()
+        }
+
+        fn frame_delay_us(&self) -> u64 {
+            self.ico.frame_delay_us()
+        }
+    }
+
+    fn check_ico_cadence(hz: u64, jitter: &[i64]) {
+        let config = AnimConfig {
+            width: 80,
+            height: 60,
+            count: 1,
+            ..AnimConfig::default()
+        };
+        let mut player = AnimationPlayer::new("ico", config.clone(), (0.0, 0.0, 0.0, 1.0)).unwrap();
+        player.animation = Box::new(TrackedIco::new(&config));
+        player.ensure_sized(config.width, config.height);
+        let start = Instant::now();
+        player.advance(start);
+        let phase = |p: &AnimationPlayer| {
+            f64::from_ne_bytes(p.buffer.as_ref().unwrap()[..8].try_into().unwrap())
+        };
+        let initial = phase(&player);
+        let mut previous = initial;
+        let mut previous_us = 0;
+        let mut worst_error = 0.0_f64;
+        for frame in 1..=240_u64 {
+            let micros =
+                (frame * 1_000_000 / hz) as i64 + jitter[(frame as usize - 1) % jitter.len()];
+            player.advance(start + Duration::from_micros(micros as u64));
+            let current = phase(&player);
+            let expected = (micros - previous_us) as f64 / player.frame_delay().as_micros() as f64;
+            worst_error = worst_error.max((current - previous - expected).abs());
+            previous = current;
+            previous_us = micros;
+        }
+        assert!(
+            worst_error < 1e-8,
+            "{hz} Hz: worst presentation step error {worst_error} ticks"
+        );
+        let expected = previous_us as f64 / player.frame_delay().as_micros() as f64;
+        assert!((previous - initial - expected).abs() < 1e-8);
+    }
+
+    #[test]
+    fn ico_presentation_is_continuous_at_60_hz() {
+        check_ico_cadence(60, &[0]);
+    }
+
+    #[test]
+    fn ico_presentation_is_continuous_with_jitter() {
+        check_ico_cadence(60, &[0, -2500, 1700, -900, 2200, 0]);
+        check_ico_cadence(144, &[0]);
+        check_ico_cadence(144, &[0, -1000, 700, -400, 900, 0]);
+    }
+
+    #[test]
+    fn ico_interpolation_respects_frame_cap_and_resumes_after_pause() {
+        for max_fps in [0, 30] {
+            let config = AnimConfig {
+                max_fps,
+                ..AnimConfig::default()
+            };
+            let mut player = AnimationPlayer::new("ico", config, (0.0, 0.0, 0.0, 1.0)).unwrap();
+            player.ensure_sized(80, 60);
+            let start = Instant::now();
+            assert!(player.advance(start));
+            let interval = Duration::from_micros(if max_fps == 0 { 1 } else { 33_333 });
+            assert_eq!(player.next_wake(), Some(start + interval));
+            assert!(!player.advance(start + interval - Duration::from_nanos(1)));
+            assert!(player.advance(start + interval));
+            let resumed = start + Duration::from_secs(60);
+            assert!(player.advance(resumed));
+            assert_eq!(player.last_tick, Some(resumed));
+            assert_eq!(player.next_wake(), Some(resumed + interval));
+        }
+    }
 
     #[test]
     fn default_delay_matches_known_modes() {
